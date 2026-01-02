@@ -194,6 +194,7 @@ async function cleanupGameResources(lobbyId: string, playerIds: string[]): Promi
     REDIS_KEYS.GAME_STATE(lobbyId),
     REDIS_KEYS.REACTIONS(lobbyId),
     ...playerIds.map((id) => REDIS_KEYS.PLAYER_ACTIVITY(id)),
+    ...playerIds.map((id) => REDIS_KEYS.PLAYER_LOBBY(id)),
   ]
 
   const batchSize = 10
@@ -291,7 +292,8 @@ export async function joinQueue(playerId: string, roundsToWin = 2): Promise<Lobb
     const existingLobby = await getLobbyById(existingLobbyId)
     if (existingLobby) {
       const gameState = await getGameState(existingLobby.id)
-      const gameIsFinished = gameState?.phase === "game_over" || existingLobby.status === "finished"
+      const gameIsFinished =
+        gameState?.phase === "game_over" || gameState?.phase === "series_end" || existingLobby.status === "finished"
 
       if (!gameIsFinished) {
         const existingPlayer = existingLobby.players.find((p) => p.id === sanitizedId)
@@ -299,10 +301,12 @@ export async function joinQueue(playerId: string, roundsToWin = 2): Promise<Lobb
           return existingPlayer
         }
       }
-      // Other players in that game might still be playing
-      await redis.del(REDIS_KEYS.PLAYER_LOBBY(sanitizedId))
+      // Game is finished, clean up the player's lobby mapping
+      await removePlayerLobby(sanitizedId)
+    } else {
+      // Lobby doesn't exist anymore, clean up
+      await removePlayerLobby(sanitizedId)
     }
-    await removePlayerLobby(sanitizedId)
   }
 
   let player = await getPlayerInfo(sanitizedId)
