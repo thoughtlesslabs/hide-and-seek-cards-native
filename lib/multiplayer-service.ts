@@ -7,7 +7,7 @@ const redis = Redis.fromEnv()
 const MAX_PLAYERS = 4
 const LOBBY_TIMER_MS = 30000
 const TURN_TIMEOUT_MS = 15000
-const DISCONNECT_TIMEOUT_MS = 15000
+const DISCONNECT_TIMEOUT_MS = 60000
 const GAME_START_DELAY_MS = 3000
 const BOT_NAMES = ["Silas", "Morgana", "Thorne", "Valeria", "Corvus", "Nyx"]
 const BOT_THINKING_DELAY_MS = 2000
@@ -27,7 +27,7 @@ const REDIS_TTL = {
   LOBBY: 1800,
   GAME: 1800,
   PLAYER_MAPPING: 1800,
-  ACTIVITY: 60,
+  ACTIVITY: 120,
   PLAYER_INFO: 86400,
   REACTIONS: 60,
 }
@@ -168,7 +168,6 @@ async function cleanupGameResources(lobbyId: string, playerIds: string[]): Promi
     REDIS_KEYS.LOBBY(lobbyId),
     REDIS_KEYS.GAME_STATE(lobbyId),
     REDIS_KEYS.REACTIONS(lobbyId),
-    ...playerIds.map((id) => REDIS_KEYS.PLAYER_LOBBY(id)),
     ...playerIds.map((id) => REDIS_KEYS.PLAYER_ACTIVITY(id)),
   ]
 
@@ -268,10 +267,8 @@ export async function joinQueue(playerId: string): Promise<LobbyPlayer> {
           return existingPlayer
         }
       }
-      await cleanupGameResources(
-        existingLobby.id,
-        existingLobby.players.map((p) => p.id),
-      )
+      // Other players in that game might still be playing
+      await redis.del(REDIS_KEYS.PLAYER_LOBBY(sanitizedId))
     }
     await removePlayerLobby(sanitizedId)
   }
@@ -430,23 +427,30 @@ export async function checkDisconnectedPlayers(lobbyId: string): Promise<string[
   const state = await getGameState(lobbyId)
   if (!state) return []
 
+  // Only check during active turn phases
+  if (state.phase !== "select_target" && state.phase !== "select_card") {
+    return []
+  }
+
   const disconnected: string[] = []
   const now = Date.now()
 
-  for (const player of state.players) {
-    if (!player.isHuman || player.isEliminated) continue
-
-    const lastActivity = await redis.get(REDIS_KEYS.PLAYER_ACTIVITY(player.id))
-    const activityTime = lastActivity ? Number.parseInt(lastActivity as string) : 0
-
-    if (now - activityTime > DISCONNECT_TIMEOUT_MS) {
-      player.isHuman = false
-      player.name = `${player.name} (Bot)`
-      disconnected.push(player.id)
-    }
+  // Only check the current player, not all players
+  const currentPlayer = state.players[state.currentPlayerIndex]
+  if (!currentPlayer || !currentPlayer.isHuman || currentPlayer.isEliminated) {
+    return []
   }
 
-  if (disconnected.length > 0) {
+  const lastActivity = await redis.get(REDIS_KEYS.PLAYER_ACTIVITY(currentPlayer.id))
+  const activityTime = lastActivity ? Number.parseInt(lastActivity as string) : 0
+
+  // Only convert to bot if they've been inactive AND their turn has timed out
+  const turnElapsed = now - (state.turnStartTime || now)
+  if (now - activityTime > DISCONNECT_TIMEOUT_MS && turnElapsed > TURN_TIMEOUT_MS) {
+    currentPlayer.isHuman = false
+    currentPlayer.name = `${currentPlayer.name} (Bot)`
+    disconnected.push(currentPlayer.id)
+
     state.version++
     await saveGameState(state)
   }
