@@ -664,7 +664,8 @@ export default function HideAndSeekCards() {
         )}
 
         <div className="flex-grow relative min-h-[350px] sm:min-h-[400px]">
-          <div className="absolute top-4 sm:top-6 left-1/2 -translate-x-1/2 z-30">
+          {/* Top player (position 1) */}
+          <div className="absolute top-2 sm:top-4 md:top-6 left-1/2 -translate-x-1/2 z-30">
             {getVisualPlayer(1) && (
               <PlayerSeat
                 player={getVisualPlayer(1)!}
@@ -683,7 +684,8 @@ export default function HideAndSeekCards() {
             )}
           </div>
 
-          <div className="absolute top-1/2 -translate-y-1/2 left-2 sm:left-4 md:left-8 z-30">
+          {/* Left player (position 2) */}
+          <div className="absolute top-1/2 -translate-y-1/2 left-1 sm:left-2 md:left-4 z-30">
             {getVisualPlayer(2) && (
               <PlayerSeat
                 player={getVisualPlayer(2)!}
@@ -702,7 +704,8 @@ export default function HideAndSeekCards() {
             )}
           </div>
 
-          <div className="absolute top-1/2 -translate-y-1/2 right-2 sm:right-4 md:right-8 z-30">
+          {/* Right player (position 3) */}
+          <div className="absolute top-1/2 -translate-y-1/2 right-1 sm:right-2 md:right-4 z-30">
             {getVisualPlayer(3) && (
               <PlayerSeat
                 player={getVisualPlayer(3)!}
@@ -721,7 +724,8 @@ export default function HideAndSeekCards() {
             )}
           </div>
 
-          <div className="absolute bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-30">
+          {/* Bottom player (position 0 - local player) */}
+          <div className="absolute bottom-2 sm:bottom-4 md:bottom-6 left-1/2 -translate-x-1/2 z-30">
             {getVisualPlayer(0) && (
               <PlayerSeat
                 player={getVisualPlayer(0)!}
@@ -740,25 +744,27 @@ export default function HideAndSeekCards() {
             )}
           </div>
 
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 md:gap-4">
-              {cards.map((card) => {
-                const cardOwner = players.find((p) => p.id === card.ownerId)
-                return (
-                  <CardComponent
-                    key={card.id}
-                    card={card}
-                    totalCards={cards.length}
-                    canFlip={
-                      (phase === "select_card" || phase === "select_target") &&
-                      players[currentPlayerIndex]?.id === playerId &&
-                      (!!localSelectedTarget || !!targetPlayerId)
-                    }
-                    onFlip={() => handlePickCard(card.id)}
-                    playerAvatar={cardOwner?.avatar}
-                  />
-                )
-              })}
+          <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
+            <div className="mx-16 sm:mx-20 md:mx-24 lg:mx-28 my-20 sm:my-24 pointer-events-auto">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 md:gap-5 lg:gap-6">
+                {cards.map((card) => {
+                  const cardOwner = players.find((p) => p.id === card.ownerId)
+                  return (
+                    <CardComponent
+                      key={card.id}
+                      card={card}
+                      totalCards={cards.length}
+                      canFlip={
+                        (phase === "select_card" || phase === "select_target") &&
+                        players[currentPlayerIndex]?.id === playerId &&
+                        (!!localSelectedTarget || !!targetPlayerId)
+                      }
+                      onFlip={() => handlePickCard(card.id)}
+                      playerAvatar={cardOwner?.avatar}
+                    />
+                  )
+                })}
+              </div>
             </div>
           </div>
         </div>
