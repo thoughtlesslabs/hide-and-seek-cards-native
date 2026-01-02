@@ -247,6 +247,13 @@ export default function HideAndSeekCards() {
     const fetchReactions = async () => {
       if (!isMountedRef.current) return // Added this check for safety
       const reactions = await getEmojiReactions(currentLobby.id)
+      if (Object.keys(reactions).length > 0) {
+        console.log("[v0] Emoji reactions received:", reactions)
+        console.log(
+          "[v0] Current players:",
+          players.map((p) => ({ id: p.id, name: p.name })),
+        )
+      }
       if (isMountedRef.current) {
         // Added this check for safety
         setPlayerReactions(reactions || {})
@@ -432,6 +439,7 @@ export default function HideAndSeekCards() {
 
   const handleSendEmoji = useCallback(
     async (emoji: string) => {
+      console.log("[v0] Sending emoji:", emoji, "from player:", playerId)
       await sendEmojiReaction(playerId, emoji)
     },
     [playerId],
@@ -592,7 +600,11 @@ export default function HideAndSeekCards() {
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(217,119,6,0.03)_0%,_#050505_80%)] opacity-50"></div>
 
         <div className="relative z-10 text-center max-w-lg">
-          <h1 className="font-serif text-3xl sm:text-4xl md:text-5xl text-amber-700 tracking-widest mb-4 drop-shadow-[0_0_30px_rgba(180,83,9,0.6)]">
+          <div className="mb-6">
+            <LiveStats />
+          </div>
+
+          <h1 className="font-serif text-3xl sm:text-4xl md:text-5xl text-amber-700 tracking-widest drop-shadow-[0_0_30px_rgba(180,83,9,0.6)]">
             SELECT GAME MODE
           </h1>
           <p className="text-amber-100/70 font-serif text-base sm:text-lg mb-12 leading-relaxed">
@@ -746,7 +758,7 @@ export default function HideAndSeekCards() {
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(217,119,6,0.03)_0%,_#050505_80%)] opacity-50"></div>
 
         <div className="relative z-10 bg-black/90 backdrop-blur-xl border-2 border-amber-900/40 rounded-2xl p-8 max-w-md w-full text-center">
-          <h2 className="font-serif text-2xl sm:text-3xl text-amber-700 tracking-widest mb-4">GAME STARTED</h2>
+          <h2 className="font-serif text-2xl sm:text-3xl text-amber-700 mb-4 tracking-widest">GAME STARTED</h2>
           <p className="text-amber-100/80 font-serif mb-8">
             The game has started while you were away. Would you like to join?
           </p>

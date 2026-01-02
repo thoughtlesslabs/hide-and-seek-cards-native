@@ -135,7 +135,11 @@ async function getLobbyById(lobbyId: string): Promise<Lobby | null> {
 
     // Ensure players is always an array
     lobby.players = ensureArray(lobby.players)
-    lobby.reactions = ensureArray(lobby.reactions)
+    // Ensure reactions is a valid object
+    lobby.reactions =
+      typeof lobby.reactions === "object" && lobby.reactions !== null && !Array.isArray(lobby.reactions)
+        ? lobby.reactions
+        : {}
 
     return lobby
   } catch (e) {
@@ -458,6 +462,7 @@ export async function addReaction(playerId: string, emoji: string): Promise<void
   if (!sanitizedId) return
 
   const lobbyId = await getPlayerLobbyId(sanitizedId)
+  console.log("[v0] addReaction - playerId:", playerId, "sanitizedId:", sanitizedId, "lobbyId:", lobbyId)
   if (!lobbyId) return
 
   const allowedEmojis = ["👍", "😄", "😮", "😢", "😡", "👏", "🎉", "🤔"]
@@ -469,6 +474,7 @@ export async function addReaction(playerId: string, emoji: string): Promise<void
   const reactions = lobby.reactions || {}
   reactions[sanitizedId] = { emoji, timestamp: Date.now() }
   lobby.reactions = reactions
+  console.log("[v0] Saving reaction - reactions:", JSON.stringify(reactions))
 
   await saveLobby(lobby)
 }
@@ -495,6 +501,10 @@ export async function getReactions(lobbyId: string): Promise<Record<string, stri
 
   if (hasExpired) {
     await saveLobby(lobby)
+  }
+
+  if (Object.keys(validReactions).length > 0) {
+    console.log("[v0] getReactions returning:", JSON.stringify(validReactions))
   }
 
   return validReactions

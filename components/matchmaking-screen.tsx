@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import type { Lobby, LobbyPlayer } from "@/types/multiplayer"
 import { ALLOWED_EMOJIS } from "@/types/multiplayer"
 import { joinMatchmaking, getLobbyStatus, sendEmojiReaction, leaveLobby } from "@/app/actions/multiplayer"
+import LiveStats from "@/components/live-stats"
 
 interface MatchmakingScreenProps {
   playerId: string
@@ -101,11 +102,15 @@ export default function MatchmakingScreen({ playerId, onGameStart, roundsToWin }
     <div className="min-h-screen w-full bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden p-4">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(217,119,6,0.03)_0%,_#050505_80%)] opacity-50"></div>
 
-      <div className="relative z-10 max-w-2xl w-full">
-        <h1 className="font-serif text-3xl sm:text-4xl md:text-5xl text-amber-700 tracking-widest text-center mb-2">
-          MATCHMAKING
+      <div className="relative z-10 text-center max-w-lg w-full">
+        <div className="mb-6">
+          <LiveStats />
+        </div>
+
+        <h1 className="font-serif text-3xl sm:text-4xl md:text-5xl text-amber-700 tracking-widest mb-4 drop-shadow-[0_0_30px_rgba(180,83,9,0.6)]">
+          FINDING MATCH
         </h1>
-        <p className="text-amber-500/60 font-serif text-center mb-8">{getGameModeText()}</p>
+        <p className="text-amber-500/60 font-serif mb-8">{getGameModeText()}</p>
 
         <div className="bg-black/90 backdrop-blur-xl border-2 border-amber-900/40 rounded-2xl p-6 sm:p-8 mb-6">
           <div className="flex items-center justify-between mb-6">
