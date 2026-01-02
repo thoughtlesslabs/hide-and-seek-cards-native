@@ -794,27 +794,29 @@ export default function HideAndSeekCards() {
             )}
           </div>
 
-          <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
-            <div className="mx-16 sm:mx-20 md:mx-24 lg:mx-28 my-20 sm:my-24 pointer-events-auto">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 md:gap-5 lg:gap-6">
-                {cards.map((card) => {
-                  const cardOwner = players.find((p) => p.id === card.ownerId)
-                  return (
-                    <CardComponent
-                      key={card.id}
-                      card={card}
-                      totalCards={cards.length}
-                      canFlip={
-                        (phase === "select_card" || phase === "select_target") &&
-                        players[currentPlayerIndex]?.id === playerId &&
-                        (!!localSelectedTarget || !!targetPlayerId)
-                      }
-                      onFlip={() => handlePickCard(card.id)}
-                      playerAvatar={cardOwner?.avatar}
-                    />
-                  )
-                })}
-              </div>
+          {/* Cards grid */}
+          <div className="absolute inset-0 flex items-center justify-center mx-16 sm:mx-20 md:mx-24 lg:mx-28 my-20 sm:my-24 pointer-events-none z-20">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 md:gap-5 lg:gap-6 pointer-events-auto">
+              {cards.map((card, index) => {
+                const cardOwner = players.find((p) => p.id === card.ownerId)
+                return (
+                  <CardComponent
+                    key={card.id}
+                    card={card}
+                    totalCards={cards.length}
+                    canFlip={
+                      (phase === "select_card" || phase === "select_target") &&
+                      players[currentPlayerIndex]?.id === playerId &&
+                      (!!localSelectedTarget || !!targetPlayerId)
+                    }
+                    onFlip={() => handlePickCard(card.id)}
+                    playerAvatar={cardOwner?.avatar}
+                    isDealing={phase === "dealing"}
+                    dealIndex={index}
+                    isShuffling={phase === "shuffling"}
+                  />
+                )
+              })}
             </div>
           </div>
         </div>

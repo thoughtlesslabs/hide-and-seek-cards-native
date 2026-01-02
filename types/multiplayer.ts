@@ -53,6 +53,8 @@ export interface SharedGameState {
   targetPlayerId: string | null
   phase:
     | "waiting"
+    | "dealing"
+    | "shuffling"
     | "select_target"
     | "select_card"
     | "reveal_result"
@@ -79,4 +81,6 @@ export interface SharedGameState {
   seriesWinnerId: string | null
   rematchVotes: string[]
   roundsToWin: number // 1, 2, or 3 (for 1 round, best of 3, best of 5)
+  dealingStartTime: number | null
+  shufflingStartTime: number | null
 }

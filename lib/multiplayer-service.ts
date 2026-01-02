@@ -17,6 +17,8 @@ const ELIMINATION_ANIMATION_DURATION_MS = 2000
 const FLIP_ANIMATION_DURATION_MS = 800
 const ROUND_END_DELAY_MS = 3000
 const COUNTER_CLOCKWISE_ORDER = [0, 2, 1, 3]
+const DEALING_ANIMATION_DURATION_MS = 1500
+const SHUFFLING_ANIMATION_DURATION_MS = 800
 
 function getNextClockwiseIndex(currentIndex: number): number {
   const currentPosition = COUNTER_CLOCKWISE_ORDER.indexOf(currentIndex)
@@ -206,7 +208,7 @@ async function cleanupGameResources(lobbyId: string, playerIds: string[]): Promi
   await redis.zrem(REDIS_KEYS.WAITING_LOBBIES, lobbyId)
 }
 
-async function initializeGame(lobby: Lobby): Promise<SharedGameState> {
+export async function initializeGame(lobby: Lobby): Promise<SharedGameState> {
   const players: SharedPlayer[] = lobby.players.map((p, idx) => ({
     id: p.id,
     name: p.username,
@@ -234,26 +236,26 @@ async function initializeGame(lobby: Lobby): Promise<SharedGameState> {
     currentPlayerIndex: startingPlayerIndex,
     targetPlayerId: null,
     phase: "waiting",
-    lastMessage: "The shadows gather...",
-    winner: null,
+    lastMessage: "Welcome to Hide and Seek Cards!",
     winnerId: null,
     turnStartTime: null,
     lastMoveBy: null,
     lastMoveTime: null,
     version: 1,
-    gameStartTime: Date.now(),
+    gameStartTime: null,
     pendingEliminationId: null,
     revealResultTime: null,
-    eliminationAnimationTime: null,
     flippingStartTime: null,
-    currentRound: 1, // Add series state fields
+    eliminationAnimationTime: null,
+    currentRound: 1,
     roundEndTime: null,
     roundWinnerId: null,
     seriesWinnerId: null,
     rematchVotes: [],
-    roundsToWin: lobby.roundsToWin,
+    roundsToWin: lobby.roundsToWin || 2,
+    dealingStartTime: null,
+    shufflingStartTime: null,
   }
-
   await saveGameState(state)
   return state
 }
@@ -578,10 +580,49 @@ async function processGameTick(state: SharedGameState): Promise<SharedGameState>
   if (state.phase === "waiting" && state.gameStartTime) {
     const elapsed = now - state.gameStartTime
     if (elapsed >= GAME_START_DELAY_MS) {
+      state.phase = "dealing"
+      state.dealingStartTime = now
+      state.lastMessage = "Dealing cards..."
+      state.version++
+      await saveGameState(state)
+    }
+    return state
+  }
+
+  if (state.phase === "dealing" && state.dealingStartTime) {
+    const elapsed = now - state.dealingStartTime
+    if (elapsed >= DEALING_ANIMATION_DURATION_MS) {
       state.phase = "select_target"
       state.turnStartTime = now
+      state.dealingStartTime = null
       const currentPlayer = state.players[state.currentPlayerIndex]
       state.lastMessage = `${currentPlayer?.name}'s turn to choose a target...`
+      state.version++
+      await saveGameState(state)
+    }
+    return state
+  }
+
+  if (state.phase === "shuffling" && state.shufflingStartTime) {
+    const elapsed = now - state.shufflingStartTime
+    if (elapsed >= SHUFFLING_ANIMATION_DURATION_MS) {
+      const currentIndex = state.currentPlayerIndex
+      let nextIndex = getNextClockwiseIndex(currentIndex)
+      let attempts = 0
+      while (state.players[nextIndex]?.isEliminated && attempts < state.players.length) {
+        nextIndex = getNextClockwiseIndex(nextIndex)
+        attempts++
+      }
+
+      state.currentPlayerIndex = nextIndex
+      state.targetPlayerId = null
+      state.phase = "select_target"
+      state.turnStartTime = now
+      state.shufflingStartTime = null
+
+      const nextPlayer = state.players[nextIndex]
+      state.lastMessage = `${nextPlayer?.name}'s turn to choose a target...`
+
       state.version++
       await saveGameState(state)
     }
@@ -602,7 +643,9 @@ async function processGameTick(state: SharedGameState): Promise<SharedGameState>
     state.phase === "series_end" ||
     state.phase === "reveal_result" ||
     state.phase === "flipping" ||
-    state.phase === "elimination_animation"
+    state.phase === "elimination_animation" ||
+    state.phase === "dealing" ||
+    state.phase === "shuffling"
   ) {
     // Handle reveal result duration
     if (state.phase === "reveal_result" && state.revealResultTime) {
@@ -694,23 +737,10 @@ async function processAfterFlipping(state: SharedGameState): Promise<SharedGameS
   }
   state.cards = state.cards.map((c, idx) => ({ ...c, position: idx }))
 
-  // Move to next player
-  const currentIndex = state.currentPlayerIndex
-  let nextIndex = getNextClockwiseIndex(currentIndex)
-  let attempts = 0
-  while (state.players[nextIndex]?.isEliminated && attempts < state.players.length) {
-    nextIndex = getNextClockwiseIndex(nextIndex)
-    attempts++
-  }
-
-  state.currentPlayerIndex = nextIndex
-  state.targetPlayerId = null
-  state.phase = "select_target"
-  state.turnStartTime = Date.now()
+  state.phase = "shuffling"
+  state.shufflingStartTime = Date.now()
   state.flippingStartTime = null
-
-  const nextPlayer = state.players[nextIndex]
-  state.lastMessage = `${nextPlayer?.name}'s turn to choose a target...`
+  state.lastMessage = "Shuffling cards..."
 
   state.version++
   await saveGameState(state)
@@ -764,11 +794,10 @@ async function processAfterElimination(state: SharedGameState): Promise<SharedGa
     return state
   }
 
-  // Go to flipping phase before shuffle
-  state.phase = "flipping"
-  state.flippingStartTime = Date.now()
-  state.pendingEliminationId = null
-  state.eliminationAnimationTime = null
+  state.phase = "shuffling"
+  state.shufflingStartTime = Date.now()
+  state.flippingStartTime = null
+  state.lastMessage = "Shuffling cards..."
 
   state.version++
   await saveGameState(state)
