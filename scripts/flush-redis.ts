@@ -8,17 +8,15 @@ const redis = new Redis({
 async function flushAllGameData() {
   console.log("Flushing all game data from Redis...")
 
-  // Get all keys
   const keys = await redis.keys("*")
   console.log(`Found ${keys.length} keys`)
 
   if (keys.length > 0) {
-    // Delete all keys
     await redis.del(...keys)
-    console.log("All keys deleted")
+    console.log("All keys deleted successfully")
   }
 
-  console.log("Done! Redis is now clean.")
+  console.log("Done! Redis is now clean for the new best-of-3 series and private game features.")
 }
 
 flushAllGameData().catch(console.error)
