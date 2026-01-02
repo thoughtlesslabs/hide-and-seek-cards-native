@@ -281,6 +281,12 @@ export default function HideAndSeekCards() {
     }
   }, [phase])
 
+  useEffect(() => {
+    if (phase === "select_target" && currentRound === 1) {
+      setHasVotedRematch(false)
+    }
+  }, [phase, currentRound])
+
   const handleGameStart = useCallback(
     async (lobby: Lobby) => {
       setCurrentLobby(lobby)
@@ -355,18 +361,6 @@ export default function HideAndSeekCards() {
       setHasVotedRematch(false)
     }
   }, [playerId, hasVotedRematch])
-
-  useEffect(() => {
-    if (phase === "waiting" && currentRound === 1) {
-      setHasVotedRematch(false)
-    }
-  }, [phase, currentRound])
-
-  useEffect(() => {
-    if (phase === "select_target" && !targetPlayerId) {
-      setLocalSelectedTarget(null)
-    }
-  }, [phase, targetPlayerId])
 
   const isCardSelectable = (card: Card) => {
     const currentPlayer = players[currentPlayerIndex]

@@ -219,7 +219,7 @@ export async function initializeGame(lobby: Lobby): Promise<SharedGameState> {
   }))
 
   const shuffledCards = cards.sort(() => Math.random() - 0.5).map((c, idx) => ({ ...c, position: idx }))
-  const startingPlayerIndex = getNextClockwiseIndex(0)
+  const startingPlayerIndex = Math.floor(Math.random() * players.length)
 
   const state: SharedGameState = {
     lobbyId: lobby.id,
@@ -665,7 +665,9 @@ async function processAfterReveal(state: SharedGameState): Promise<SharedGameSta
 }
 
 async function processAfterFlipping(state: SharedGameState): Promise<SharedGameState> {
-  // Shuffle cards
+  state.cards = state.cards.map((c) => ({ ...c, isRevealed: false }))
+
+  // Then shuffle cards
   state.cards = state.cards.sort(() => Math.random() - 0.5).map((c, idx) => ({ ...c, position: idx }))
 
   // Move to next player directly
@@ -692,6 +694,11 @@ async function processAfterFlipping(state: SharedGameState): Promise<SharedGameS
 }
 
 async function processAfterElimination(state: SharedGameState): Promise<SharedGameState> {
+  state.cards = state.cards.map((c) => ({ ...c, isRevealed: false }))
+
+  // Shuffle cards after elimination
+  state.cards = state.cards.sort(() => Math.random() - 0.5).map((c, idx) => ({ ...c, position: idx }))
+
   const activePlayers = state.players.filter((p) => !p.isEliminated)
 
   if (activePlayers.length <= 1) {
@@ -737,9 +744,6 @@ async function processAfterElimination(state: SharedGameState): Promise<SharedGa
     await saveGameState(state)
     return state
   }
-
-  // Shuffle cards first
-  state.cards = state.cards.sort(() => Math.random() - 0.5).map((c, idx) => ({ ...c, position: idx }))
 
   // Move to next player
   const currentIndex = state.currentPlayerIndex
@@ -949,8 +953,7 @@ async function startNextRound(state: SharedGameState): Promise<SharedGameState> 
   // Increment round
   state.currentRound++
 
-  // Reset game state for new round
-  const startingPlayerIndex = getNextClockwiseIndex(0)
+  const startingPlayerIndex = Math.floor(Math.random() * state.players.length)
   state.currentPlayerIndex = startingPlayerIndex
   state.targetPlayerId = null
   state.phase = "select_target"
@@ -964,6 +967,7 @@ async function startNextRound(state: SharedGameState): Promise<SharedGameState> 
   state.roundWinnerId = null
   state.seriesWinnerId = null
   state.winner = null
+  // Clear rematch votes for new round
   state.rematchVotes = []
   state.lastMessage = `Round ${state.currentRound} - ${state.players[startingPlayerIndex]?.name}'s turn...`
 
@@ -1009,7 +1013,8 @@ async function voteRematch(playerId: string): Promise<SharedGameState | null> {
 
     state.cards = cards.sort(() => Math.random() - 0.5).map((c, idx) => ({ ...c, position: idx }))
     state.currentRound = 1
-    state.currentPlayerIndex = getNextClockwiseIndex(0)
+    const startingPlayerIndex = Math.floor(Math.random() * state.players.length)
+    state.currentPlayerIndex = startingPlayerIndex
     state.targetPlayerId = null
     state.phase = "select_target"
     state.turnStartTime = Date.now()
@@ -1022,7 +1027,8 @@ async function voteRematch(playerId: string): Promise<SharedGameState | null> {
     state.roundWinnerId = null
     state.seriesWinnerId = null
     state.winner = null
-    state.lastMessage = "New series begins..."
+    state.rematchVotes = []
+    state.lastMessage = `New series begins - ${state.players[startingPlayerIndex]?.name}'s turn...`
   }
 
   state.version++
