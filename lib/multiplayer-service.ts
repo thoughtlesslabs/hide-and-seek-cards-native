@@ -738,10 +738,29 @@ async function processAfterElimination(state: SharedGameState): Promise<SharedGa
     return state
   }
 
+  // Shuffle cards first
+  state.cards = state.cards.sort(() => Math.random() - 0.5).map((c, idx) => ({ ...c, position: idx }))
+
+  // Move to next player
+  const currentIndex = state.currentPlayerIndex
+  let nextIndex = getNextClockwiseIndex(currentIndex)
+  let attempts = 0
+  while (state.players[nextIndex]?.isEliminated && attempts < state.players.length) {
+    nextIndex = getNextClockwiseIndex(nextIndex)
+    attempts++
+  }
+
+  state.currentPlayerIndex = nextIndex
+  state.targetPlayerId = null
+
   state.phase = "select_target"
   state.turnStartTime = Date.now()
   state.flippingStartTime = null
-  state.lastMessage = "The shadows gather for a new round..."
+  state.pendingEliminationId = null
+  state.eliminationAnimationTime = null
+
+  const nextPlayer = state.players[nextIndex]
+  state.lastMessage = `${nextPlayer?.name}'s turn to choose a target...`
 
   state.version++
   await saveGameState(state)
