@@ -34,13 +34,21 @@ export default function PlayerSeat({
     }
   }, [displayedEmoji])
 
+  const handleClick = () => {
+    if (canBeTargeted && !player.isEliminated) {
+      onSelectTarget(player.id)
+    }
+  }
+
+  const isClickable = canBeTargeted && !player.isEliminated
+
   return (
     <button
-      onClick={() => canBeTargeted && onSelectTarget(player.id)}
-      disabled={!canBeTargeted || player.isEliminated}
+      onClick={handleClick}
+      disabled={!isClickable}
       className={`
         relative flex flex-col items-center gap-1 transition-all duration-500
-        ${canBeTargeted && !player.isEliminated ? "cursor-pointer" : "cursor-default"}
+        ${isClickable ? "cursor-pointer" : "cursor-default"}
         ${player.isEliminated ? "opacity-30 grayscale" : ""}
       `}
     >
@@ -56,7 +64,7 @@ export default function PlayerSeat({
           border-3 sm:border-4 transition-all duration-500
           ${isActive ? "border-amber-500 shadow-[0_0_25px_rgba(217,119,6,0.7)] scale-110" : "border-amber-900/50"}
           ${isTarget ? "border-red-600 shadow-[0_0_25px_rgba(220,38,38,0.7)]" : ""}
-          ${canBeTargeted && !player.isEliminated ? "hover:border-amber-400 hover:scale-105" : ""}
+          ${isClickable ? "hover:border-amber-400 hover:scale-105 hover:shadow-[0_0_20px_rgba(217,119,6,0.5)]" : ""}
         `}
         >
           <img src={player.avatar || "/placeholder.svg"} alt={player.name} className="w-full h-full object-cover" />
@@ -68,6 +76,9 @@ export default function PlayerSeat({
         </div>
         {isActive && (
           <div className="absolute -top-1 -right-1 w-4 h-4 sm:w-5 sm:h-5 bg-amber-500 rounded-full animate-pulse shadow-[0_0_12px_rgba(217,119,6,0.9)]"></div>
+        )}
+        {isClickable && (
+          <div className="absolute inset-0 rounded-full border-2 border-amber-400/50 animate-pulse"></div>
         )}
       </div>
       {/* Series Win Tokens */}

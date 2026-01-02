@@ -742,19 +742,23 @@ export default function HideAndSeekCards() {
 
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20">
             <div className="relative w-[200px] h-[150px] sm:w-[280px] sm:h-[180px] md:w-[350px] md:h-[220px]">
-              {cards.map((card) => (
-                <CardComponent
-                  key={card.id}
-                  card={card}
-                  totalCards={cards.length}
-                  canFlip={
-                    (phase === "select_card" || phase === "select_target") &&
-                    players[currentPlayerIndex]?.id === playerId &&
-                    (!!localSelectedTarget || !!targetPlayerId)
-                  }
-                  onFlip={() => handlePickCard(card.id)}
-                />
-              ))}
+              {cards.map((card) => {
+                const cardOwner = players.find((p) => p.id === card.ownerId)
+                return (
+                  <CardComponent
+                    key={card.id}
+                    card={card}
+                    totalCards={cards.length}
+                    canFlip={
+                      (phase === "select_card" || phase === "select_target") &&
+                      players[currentPlayerIndex]?.id === playerId &&
+                      (!!localSelectedTarget || !!targetPlayerId)
+                    }
+                    onFlip={() => handlePickCard(card.id)}
+                    playerAvatar={cardOwner?.avatar}
+                  />
+                )
+              })}
             </div>
           </div>
         </div>
@@ -762,13 +766,13 @@ export default function HideAndSeekCards() {
         <div className="flex-shrink-0 flex justify-between items-center px-4 sm:px-8 py-3 sm:py-4">
           <button
             onClick={() => setShowRulesModal(true)}
-            className="bg-black/40 hover:bg-black/60 text-amber-200/80 px-4 py-2 text-xs sm:text-sm rounded-lg font-serif tracking-wide transition-all border border-amber-900/30"
+            className="bg-black/40 hover:bg-black/60 text-amber-200/80 hover:text-amber-200 px-4 py-2 text-xs sm:text-sm rounded-lg font-serif tracking-wide transition-all duration-200 border border-amber-900/30 hover:border-amber-700/50 hover:scale-105 active:scale-95"
           >
             Rules
           </button>
           <button
             onClick={() => setShowLeaveModal(true)}
-            className="bg-red-900/30 hover:bg-red-900/50 text-red-200/80 px-4 py-2 text-xs sm:text-sm rounded-lg font-serif tracking-wide transition-all border border-red-900/30"
+            className="bg-red-900/30 hover:bg-red-900/50 text-red-200/80 hover:text-red-200 px-4 py-2 text-xs sm:text-sm rounded-lg font-serif tracking-wide transition-all duration-200 border border-red-900/30 hover:border-red-700/50 hover:scale-105 active:scale-95"
           >
             Leave
           </button>
@@ -809,9 +813,9 @@ export default function HideAndSeekCards() {
             <div className="flex gap-3">
               <button
                 onClick={() => setShowLeaveModal(false)}
-                className="flex-1 bg-black/40 hover:bg-black/60 text-amber-200/80 py-3 rounded-xl font-bold font-serif tracking-widest border border-amber-900/30"
+                className="flex-1 bg-black/40 hover:bg-black/60 text-amber-200/80 hover:text-amber-200 py-3 rounded-xl font-bold font-serif tracking-widest border border-amber-900/30 hover:border-amber-700/50 transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
               >
-                Stay
+                Cancel
               </button>
               <button
                 onClick={handleLeaveGame}
