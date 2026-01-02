@@ -8,7 +8,6 @@ import CardComponent from "@/components/card-component"
 import MatchmakingScreen from "@/components/matchmaking-screen"
 import OfflineGame from "@/components/offline-game"
 import {
-  finishGame,
   leaveGame,
   sendHeartbeat,
   getGameState,
@@ -51,9 +50,7 @@ export default function HideAndSeekCards() {
   const [hasVotedRematch, setHasVotedRematch] = useState(false)
 
   const handleLeaveGame = useCallback(async () => {
-    if (currentLobby) {
-      await leaveGame(currentLobby.id)
-    }
+    await leaveGame(playerId)
     setShowLeaveModal(false)
     // Reset all game state
     setSharedGameState(null)
@@ -66,7 +63,7 @@ export default function HideAndSeekCards() {
     setHasVotedRematch(false)
     // Go back to round selection
     setGameMode("roundSelection")
-  }, [currentLobby])
+  }, [playerId])
 
   useEffect(() => {
     isMountedRef.current = true
@@ -305,8 +302,9 @@ export default function HideAndSeekCards() {
 
   const handlePlayAgain = useCallback(async () => {
     if (currentLobby) {
-      await finishGame(currentLobby.id)
+      await leaveGame(playerId)
     }
+    setShowLeaveModal(false)
     setSharedGameState(null)
     setCurrentLobby(null)
     setPlayerReactions({})
@@ -316,7 +314,7 @@ export default function HideAndSeekCards() {
     setLocalSelectedTarget(null)
     setHasVotedRematch(false)
     setGameMode("roundSelection")
-  }, [currentLobby])
+  }, [currentLobby, playerId])
 
   const handleVoteRematch = useCallback(async () => {
     if (hasVotedRematch) return
@@ -546,7 +544,7 @@ export default function HideAndSeekCards() {
 
           <button
             onClick={() => setGameMode("menu")}
-            className="w-full px-8 py-3 bg-black/40 hover:bg-black/60 text-amber-200/60 text-base rounded-xl font-bold transition-all font-serif tracking-widest border border-amber-900/30"
+            className="w-full px-8 py-3 bg-black/40 hover:bg-black/60 text-amber-200/80 text-base rounded-xl font-bold transition-all font-serif tracking-widest border border-amber-900/30"
           >
             Back
           </button>
