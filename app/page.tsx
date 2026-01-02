@@ -467,7 +467,7 @@ export default function HideAndSeekCards() {
             <div className="mt-6 pt-6 border-t border-amber-900/30">
               <p className="text-amber-200/60 text-sm font-serif mb-3">Enjoying the game? Consider donating.</p>
               <a
-                href="https://v0-hide-and-seek-cards.vercel.app/"
+                href="https://buy.stripe.com/aFa5kEdUw24aecBewpbsc0b"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-block w-full px-8 py-3 bg-amber-700/30 hover:bg-amber-700/50 text-amber-200 text-sm rounded-xl font-bold transition-all font-serif tracking-widest border border-amber-600/50 shadow-lg"
@@ -603,7 +603,7 @@ export default function HideAndSeekCards() {
             <div className="mt-4 pt-4 border-t border-amber-900/30">
               <p className="text-amber-200/60 text-sm text-center mb-3">Enjoying the game? Consider donating.</p>
               <a
-                href="https://v0-hide-and-seek-cards.vercel.app/"
+                href="https://buy.stripe.com/aFa5kEdUw24aecBewpbsc0b"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-block w-full px-6 py-3 bg-amber-700/30 hover:bg-amber-700/50 text-amber-200 text-sm rounded-xl font-bold transition-all text-center font-serif tracking-widest border border-amber-600/50 shadow-lg"
