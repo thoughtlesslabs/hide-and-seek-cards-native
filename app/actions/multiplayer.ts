@@ -24,11 +24,14 @@ function checkRateLimit(playerId: string): boolean {
   return true
 }
 
-export async function joinMatchmaking(playerId: string): Promise<LobbyPlayer> {
+export async function joinMatchmaking(playerId: string, roundsToWin = 2): Promise<LobbyPlayer> {
   if (!playerId || typeof playerId !== "string") {
     throw new Error("Invalid player ID")
   }
-  return await multiplayerService.joinQueue(playerId)
+  if (roundsToWin !== 1 && roundsToWin !== 2 && roundsToWin !== 3) {
+    roundsToWin = 2 // Default to best of 3
+  }
+  return await multiplayerService.joinQueue(playerId, roundsToWin)
 }
 
 export async function getLobbyStatus(playerId: string): Promise<Lobby | null> {

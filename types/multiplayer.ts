@@ -16,6 +16,7 @@ export interface Lobby {
   startTimer: number | null
   maxPlayers: number
   reactions?: Record<string, { emoji: string; timestamp: number }>
+  roundsToWin: number // 1 for single game, 2 for best of 3, 3 for best of 5
 }
 
 export interface EmojiReaction {
@@ -76,5 +77,6 @@ export interface SharedGameState {
   roundEndTime: number | null
   roundWinnerId: string | null
   seriesWinnerId: string | null
-  rematchVotes: string[] // Array of player IDs who voted for rematch
+  rematchVotes: string[]
+  roundsToWin: number // 1, 2, or 3 (for 1 round, best of 3, best of 5)
 }

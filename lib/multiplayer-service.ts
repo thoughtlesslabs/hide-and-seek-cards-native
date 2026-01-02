@@ -15,8 +15,6 @@ const REVEAL_RESULT_DURATION_MS = 4000
 const ELIMINATION_ANIMATION_DURATION_MS = 2000
 const FLIP_ANIMATION_DURATION_MS = 800
 const ROUND_END_DELAY_MS = 3000
-const SERIES_WINS_NEEDED = 2
-
 const COUNTER_CLOCKWISE_ORDER = [0, 2, 1, 3]
 
 function getNextClockwiseIndex(currentIndex: number): number {
@@ -227,6 +225,7 @@ async function initializeGame(lobby: Lobby): Promise<SharedGameState> {
     roundWinnerId: null,
     seriesWinnerId: null,
     rematchVotes: [],
+    roundsToWin: lobby.roundsToWin,
   }
 
   await saveGameState(state)
@@ -256,7 +255,7 @@ async function checkAndHandleLobbyTimer(lobby: Lobby): Promise<Lobby> {
   return lobby
 }
 
-export async function joinQueue(playerId: string): Promise<LobbyPlayer> {
+export async function joinQueue(playerId: string, roundsToWin = 2): Promise<LobbyPlayer> {
   const sanitizedId = sanitizeId(playerId)
   if (!sanitizedId) {
     throw new Error("Invalid player ID")
@@ -294,7 +293,12 @@ export async function joinQueue(playerId: string): Promise<LobbyPlayer> {
 
   for (const lobbyId of waitingLobbyIds) {
     const lobby = await getLobbyById(lobbyId as string)
-    if (lobby && lobby.status === "waiting" && lobby.players.length < MAX_PLAYERS) {
+    if (
+      lobby &&
+      lobby.status === "waiting" &&
+      lobby.players.length < MAX_PLAYERS &&
+      lobby.roundsToWin === roundsToWin
+    ) {
       const alreadyInLobby = lobby.players.some((p) => p.id === sanitizedId)
       if (alreadyInLobby) continue
 
@@ -324,6 +328,7 @@ export async function joinQueue(playerId: string): Promise<LobbyPlayer> {
     startTimer: Date.now() + LOBBY_TIMER_MS,
     maxPlayers: MAX_PLAYERS,
     reactions: {},
+    roundsToWin,
   }
 
   await saveLobby(newLobby)
@@ -699,7 +704,7 @@ async function processAfterElimination(state: SharedGameState): Promise<SharedGa
       const updatedWinner = state.players[winnerIndex]
 
       // Check if this player has won the series (best of 3 = 2 wins)
-      if (updatedWinner.seriesWins >= SERIES_WINS_NEEDED) {
+      if (updatedWinner.seriesWins >= state.roundsToWin) {
         // Series is over
         state.phase = "series_end"
         state.winner = winner.name

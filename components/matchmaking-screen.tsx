@@ -8,9 +8,10 @@ import { joinMatchmaking, getLobbyStatus, sendEmojiReaction, leaveLobby } from "
 interface MatchmakingScreenProps {
   playerId: string
   onGameStart: (lobby: Lobby) => void
+  roundsToWin: number // Added roundsToWin prop
 }
 
-export default function MatchmakingScreen({ playerId, onGameStart }: MatchmakingScreenProps) {
+export default function MatchmakingScreen({ playerId, onGameStart, roundsToWin }: MatchmakingScreenProps) {
   const [lobby, setLobby] = useState<Lobby | null>(null)
   const [currentPlayer, setCurrentPlayer] = useState<LobbyPlayer | null>(null)
   const [timeRemaining, setTimeRemaining] = useState<number>(0)
@@ -18,7 +19,7 @@ export default function MatchmakingScreen({ playerId, onGameStart }: Matchmaking
   const [localEmoji, setLocalEmoji] = useState<string | null>(null)
 
   useEffect(() => {
-    joinMatchmaking(playerId).then((player) => {
+    joinMatchmaking(playerId, roundsToWin).then((player) => {
       setCurrentPlayer(player)
     })
 
@@ -42,7 +43,7 @@ export default function MatchmakingScreen({ playerId, onGameStart }: Matchmaking
       clearInterval(interval)
       leaveLobby(playerId)
     }
-  }, [playerId, onGameStart])
+  }, [playerId, onGameStart, roundsToWin])
 
   const handleEmojiClick = async (emoji: string) => {
     // Show locally immediately
@@ -77,12 +78,20 @@ export default function MatchmakingScreen({ playerId, onGameStart }: Matchmaking
     return null
   }
 
+  const getGameModeText = () => {
+    if (roundsToWin === 1) return "Single Round"
+    if (roundsToWin === 2) return "Best of 3"
+    if (roundsToWin === 3) return "Best of 5"
+    return "Best of 3"
+  }
+
   if (!lobby || !currentPlayer) {
     return (
       <div className="min-h-screen w-full bg-[#050505] flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-amber-700 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-amber-100 font-serif text-xl">Finding players...</p>
+          <p className="text-amber-500/60 font-serif text-sm mt-2">{getGameModeText()}</p>
         </div>
       </div>
     )
@@ -93,9 +102,10 @@ export default function MatchmakingScreen({ playerId, onGameStart }: Matchmaking
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(217,119,6,0.03)_0%,_#050505_80%)] opacity-50"></div>
 
       <div className="relative z-10 max-w-2xl w-full">
-        <h1 className="font-serif text-3xl sm:text-4xl md:text-5xl text-amber-700 tracking-widest text-center mb-8">
+        <h1 className="font-serif text-3xl sm:text-4xl md:text-5xl text-amber-700 tracking-widest text-center mb-2">
           MATCHMAKING
         </h1>
+        <p className="text-amber-500/60 font-serif text-center mb-8">{getGameModeText()}</p>
 
         <div className="bg-black/90 backdrop-blur-xl border-2 border-amber-900/40 rounded-2xl p-6 sm:p-8 mb-6">
           <div className="flex items-center justify-between mb-6">

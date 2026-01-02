@@ -45,9 +45,17 @@ export default function HideAndSeekCards() {
   const [playerReactions, setPlayerReactions] = useState<Record<string, string>>({})
   const lastVersionRef = useRef<number>(0)
   const isMountedRef = useRef(true)
-  const [gameMode, setGameMode] = useState<"menu" | "matchmaking" | "playing" | "offline">("menu")
+  const [gameMode, setGameMode] = useState<"menu" | "roundSelection" | "matchmaking" | "playing" | "offline">("menu")
+  const [selectedRoundsToWin, setSelectedRoundsToWin] = useState<number>(2) // Default to best of 3
   const [localSelectedTarget, setLocalSelectedTarget] = useState<string | null>(null)
   const [hasVotedRematch, setHasVotedRematch] = useState(false)
+
+  const handleLeaveGame = useCallback(async () => {
+    if (currentLobby) {
+      await leaveGame(currentLobby.id)
+    }
+    setShowLeaveModal(false)
+  }, [currentLobby])
 
   useEffect(() => {
     isMountedRef.current = true
@@ -92,6 +100,7 @@ export default function HideAndSeekCards() {
   const phase = sharedGameState?.phase ?? "waiting"
   const lastMessage = sharedGameState?.lastMessage ?? "Welcome to Hide and Seek Cards."
   const currentRound = sharedGameState?.currentRound ?? 1
+  const roundsToWin = sharedGameState?.roundsToWin ?? 2
   const roundWinnerId = sharedGameState?.roundWinnerId ?? null
   const seriesWinnerId = sharedGameState?.seriesWinnerId ?? null
   const rematchVotes = sharedGameState?.rematchVotes ?? []
@@ -150,90 +159,116 @@ export default function HideAndSeekCards() {
         }
 
         const terminated = await checkBotOnlyGame(currentLobby.id)
-        if (terminated) {
-          if (isMountedRef.current) {
-            setGameMode("menu")
-            setCurrentLobby(null)
-            setSharedGameState(null)
-          }
-          return
-        }
-
-        const reactions = await getEmojiReactions(currentLobby.id)
-        if (isMountedRef.current) {
-          setPlayerReactions(reactions || {})
+        if (terminated && isMountedRef.current) {
+          setGameMode("menu")
+          setCurrentLobby(null)
+          setSharedGameState(null)
         }
       } catch {
-        // Silent fail
+        // Silently fail
       }
     }
 
-    const pollInterval = setInterval(pollGameState, POLL_INTERVAL_MS)
-    return () => clearInterval(pollInterval)
+    pollGameState()
+    const interval = setInterval(pollGameState, POLL_INTERVAL_MS)
+    return () => clearInterval(interval)
   }, [gameMode, currentLobby, playerId])
 
   useEffect(() => {
-    if (phase !== "waiting" || !sharedGameState?.gameStartTime) {
+    if (gameMode !== "playing" || !sharedGameState?.gameStartTime) return
+    if (sharedGameState.phase !== "waiting") {
       setGameStartCountdown(null)
       return
     }
 
     const updateCountdown = () => {
-      if (!isMountedRef.current) return
+      if (!isMountedRef.current) return // Added this check for safety
       const elapsed = Date.now() - sharedGameState.gameStartTime!
       const remaining = Math.max(0, Math.ceil((GAME_START_DELAY_MS - elapsed) / 1000))
       setGameStartCountdown(remaining)
     }
 
     updateCountdown()
-    const countdownInterval = setInterval(updateCountdown, 100)
-    return () => clearInterval(countdownInterval)
-  }, [phase, sharedGameState?.gameStartTime])
+    const interval = setInterval(updateCountdown, 100)
+    return () => clearInterval(interval)
+  }, [gameMode, sharedGameState?.gameStartTime, sharedGameState?.phase])
 
   useEffect(() => {
-    if (
-      !sharedGameState?.turnStartTime ||
-      phase === "game_over" ||
-      phase === "series_end" ||
-      phase === "round_end" ||
-      phase === "reveal_result" ||
-      phase === "waiting"
-    ) {
+    if (gameMode !== "playing" || !sharedGameState?.turnStartTime) return
+    if (sharedGameState.phase !== "select_target" && sharedGameState.phase !== "select_card") {
       setTurnTimeRemaining(null)
       return
     }
 
     const updateTimer = () => {
-      if (!isMountedRef.current) return
+      if (!isMountedRef.current) return // Added this check for safety
       const elapsed = Date.now() - sharedGameState.turnStartTime!
       const remaining = Math.max(0, Math.ceil((TURN_TIMEOUT_MS - elapsed) / 1000))
       setTurnTimeRemaining(remaining)
     }
 
     updateTimer()
-    const timerInterval = setInterval(updateTimer, 100)
-    return () => clearInterval(timerInterval)
-  }, [sharedGameState?.turnStartTime, phase])
+    const interval = setInterval(updateTimer, 100)
+    return () => clearInterval(interval)
+  }, [gameMode, sharedGameState?.turnStartTime, sharedGameState?.phase])
 
   useEffect(() => {
-    if ((gameMode !== "playing" && gameMode !== "matchmaking") || !playerId) return
+    if (gameMode !== "playing" || !currentLobby) return
 
     const heartbeatInterval = setInterval(() => {
       if (isMountedRef.current) {
+        // Added this check for safety
         sendHeartbeat(playerId)
       }
     }, 5000)
 
     sendHeartbeat(playerId)
     return () => clearInterval(heartbeatInterval)
-  }, [gameMode, playerId])
+  }, [gameMode, currentLobby, playerId])
+
+  useEffect(() => {
+    if (gameMode !== "playing" || !currentLobby) return
+
+    const fetchReactions = async () => {
+      if (!isMountedRef.current) return // Added this check for safety
+      const reactions = await getEmojiReactions(currentLobby.id)
+      if (isMountedRef.current) {
+        // Added this check for safety
+        setPlayerReactions(reactions || {})
+      }
+    }
+
+    fetchReactions()
+    const interval = setInterval(fetchReactions, 1000)
+    return () => clearInterval(interval)
+  }, [gameMode, currentLobby])
+
+  const handleGameStart = useCallback(
+    async (lobby: Lobby) => {
+      setCurrentLobby(lobby)
+      setGameMode("playing")
+      lastVersionRef.current = 0
+      setHasVotedRematch(false)
+
+      try {
+        const state = await getGameState(playerId)
+        if (state && Array.isArray(state.players) && Array.isArray(state.cards)) {
+          lastVersionRef.current = state.version
+          setSharedGameState(state)
+        }
+      } catch {
+        // Will be fetched on next poll
+      }
+    },
+    [playerId],
+  )
 
   const handleSelectTarget = useCallback(
-    (id: string) => {
+    (targetId: string) => {
       if (phase !== "select_target") return
       const currentPlayer = players[currentPlayerIndex]
       if (currentPlayer?.id !== playerId) return
-      setLocalSelectedTarget(id)
+      setLocalSelectedTarget(targetId)
     },
     [phase, players, currentPlayerIndex, playerId],
   )
@@ -257,24 +292,7 @@ export default function HideAndSeekCards() {
     [phase, players, currentPlayerIndex, playerId, localSelectedTarget, targetPlayerId],
   )
 
-  const handleGameStart = async (lobby: Lobby) => {
-    setCurrentLobby(lobby)
-    setGameMode("playing")
-    lastVersionRef.current = 0
-    setHasVotedRematch(false)
-
-    try {
-      const state = await getGameState(playerId)
-      if (state && Array.isArray(state.players) && Array.isArray(state.cards)) {
-        lastVersionRef.current = state.version
-        setSharedGameState(state)
-      }
-    } catch {
-      // Will be fetched on next poll
-    }
-  }
-
-  const handlePlayAgain = async () => {
+  const handlePlayAgain = useCallback(async () => {
     if (currentLobby) {
       await finishGame(currentLobby.id)
     }
@@ -287,18 +305,9 @@ export default function HideAndSeekCards() {
     setLocalSelectedTarget(null)
     setHasVotedRematch(false)
     setGameMode("matchmaking")
-  }
+  }, [currentLobby])
 
-  const handleLeaveGame = async () => {
-    await leaveGame(playerId)
-    setShowLeaveModal(false)
-    setGameMode("menu")
-    setCurrentLobby(null)
-    setSharedGameState(null)
-    lastVersionRef.current = 0
-  }
-
-  const handleVoteRematch = async () => {
+  const handleVoteRematch = useCallback(async () => {
     if (hasVotedRematch) return
     setHasVotedRematch(true)
     try {
@@ -306,7 +315,7 @@ export default function HideAndSeekCards() {
     } catch {
       setHasVotedRematch(false)
     }
-  }
+  }, [playerId, hasVotedRematch])
 
   useEffect(() => {
     if (phase === "waiting" && currentRound === 1) {
@@ -340,43 +349,40 @@ export default function HideAndSeekCards() {
     return players.find((p) => p.id === card.ownerId)?.avatar || "/placeholder.svg"
   }
 
+  const getGameModeText = (rounds: number) => {
+    if (rounds === 1) return "Single Round"
+    if (rounds === 2) return "Best of 3"
+    if (rounds === 3) return "Best of 5"
+    return "Best of 3"
+  }
+
   // Round end screen
   if (phase === "round_end" && roundWinner && gameMode === "playing") {
     return (
       <div className="fixed inset-0 bg-black/95 backdrop-blur-xl z-[400] flex items-center justify-center p-4">
         <div className="bg-[#0f0a05] border-2 border-amber-800/60 p-8 sm:p-10 rounded-3xl text-center max-w-md w-full shadow-[0_0_100px_rgba(217,119,6,0.2)]">
-          <h2 className="font-serif text-2xl sm:text-3xl text-amber-600 mb-2 tracking-widest uppercase">
-            Round {currentRound}
+          <h2 className="font-serif text-2xl sm:text-3xl text-amber-600 mb-4 tracking-widest uppercase">
+            Round {currentRound} Complete
           </h2>
-          <h3 className="font-serif text-3xl sm:text-4xl md:text-5xl text-amber-700 mb-6 tracking-widest uppercase font-bold">
-            {roundWinner.id === playerId ? "Round Won!" : "Round Lost"}
-          </h3>
           <div className="relative inline-block mb-6">
             <img
               src={roundWinner.avatar || "/placeholder.svg"}
               alt={roundWinner.name}
-              className="w-24 h-24 sm:w-28 sm:h-28 rounded-full border-4 border-amber-700 shadow-2xl object-cover"
+              className="w-24 h-24 sm:w-32 sm:h-32 rounded-full border-4 border-amber-700 shadow-2xl object-cover"
             />
           </div>
           <p className="text-lg sm:text-xl text-amber-50/80 mb-4 font-serif font-light tracking-wide italic">
             {roundWinner.name} wins this round!
           </p>
-          <div className="flex justify-center gap-6 mb-6">
+          <div className="flex justify-center gap-4 mb-6">
             {sharedGameState?.players.map((p) => (
-              <div key={p.id} className="flex flex-col items-center">
+              <div key={p.id} className="text-center">
                 <img
                   src={p.avatar || "/placeholder.svg"}
                   alt={p.name}
-                  className="w-10 h-10 rounded-full border-2 border-amber-700/50"
+                  className="w-10 h-10 rounded-full border-2 border-amber-700/50 mx-auto mb-1"
                 />
-                <div className="flex gap-1 mt-1">
-                  {Array.from({ length: p.seriesWins || 0 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className="w-3 h-3 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 border border-amber-300"
-                    />
-                  ))}
-                </div>
+                <p className="text-amber-500/60 text-xs">{p.seriesWins} wins</p>
               </div>
             ))}
           </div>
@@ -395,7 +401,7 @@ export default function HideAndSeekCards() {
       <div className="fixed inset-0 bg-black/95 backdrop-blur-xl z-[400] flex items-center justify-center p-4">
         <div className="bg-[#0f0a05] border-2 border-amber-800/60 p-8 sm:p-10 rounded-3xl text-center max-w-md w-full shadow-[0_0_100px_rgba(217,119,6,0.2)]">
           <h2 className="font-serif text-2xl sm:text-3xl text-amber-600 mb-2 tracking-widest uppercase">
-            Series Complete
+            {roundsToWin === 1 ? "Game Complete" : "Series Complete"}
           </h2>
           <h3 className="font-serif text-3xl sm:text-4xl md:text-5xl text-amber-700 mb-6 tracking-widest uppercase font-bold">
             {seriesWinner.id === playerId ? "Victory!" : "Defeat"}
@@ -406,17 +412,19 @@ export default function HideAndSeekCards() {
               alt={seriesWinner.name}
               className="w-28 h-28 sm:w-36 sm:h-36 rounded-full border-4 border-amber-700 shadow-2xl object-cover"
             />
-            <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
-              {Array.from({ length: 2 }).map((_, i) => (
-                <div
-                  key={i}
-                  className="w-5 h-5 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 border-2 border-amber-300 shadow-lg"
-                />
-              ))}
-            </div>
+            {roundsToWin > 1 && (
+              <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
+                {Array.from({ length: roundsToWin }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="w-5 h-5 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 border-2 border-amber-300 shadow-lg"
+                  />
+                ))}
+              </div>
+            )}
           </div>
           <p className="text-lg sm:text-xl text-amber-50/80 mb-8 font-serif font-light tracking-wide italic">
-            {seriesWinner.name} wins the series!
+            {seriesWinner.name} wins{roundsToWin === 1 ? " the game" : " the series"}!
           </p>
 
           <div className="flex flex-col gap-3">
@@ -455,6 +463,18 @@ export default function HideAndSeekCards() {
             >
               Find New Game
             </button>
+
+            <div className="mt-6 pt-6 border-t border-amber-900/30">
+              <p className="text-amber-200/60 text-sm font-serif mb-3">Enjoying the game? Consider donating.</p>
+              <a
+                href="https://v0-hide-and-seek-cards.vercel.app/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block w-full px-8 py-3 bg-amber-700/30 hover:bg-amber-700/50 text-amber-200 text-sm rounded-xl font-bold transition-all font-serif tracking-widest border border-amber-600/50 shadow-lg"
+              >
+                Donate Now
+              </a>
+            </div>
           </div>
         </div>
       </div>
@@ -466,7 +486,62 @@ export default function HideAndSeekCards() {
   }
 
   if (gameMode === "matchmaking") {
-    return <MatchmakingScreen playerId={playerId} onGameStart={handleGameStart} />
+    return <MatchmakingScreen playerId={playerId} onGameStart={handleGameStart} roundsToWin={selectedRoundsToWin} />
+  }
+
+  if (gameMode === "roundSelection") {
+    return (
+      <div className="min-h-screen w-full bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden p-4">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(217,119,6,0.03)_0%,_#050505_80%)] opacity-50"></div>
+
+        <div className="relative z-10 text-center max-w-lg">
+          <h1 className="font-serif text-3xl sm:text-4xl md:text-5xl text-amber-700 tracking-widest mb-4 drop-shadow-[0_0_30px_rgba(180,83,9,0.6)]">
+            SELECT GAME MODE
+          </h1>
+          <p className="text-amber-100/70 font-serif text-base sm:text-lg mb-12 leading-relaxed">
+            How many rounds per game would you like to play?
+          </p>
+
+          <div className="flex flex-col gap-4 mb-8">
+            <button
+              onClick={() => {
+                setSelectedRoundsToWin(1)
+                setGameMode("matchmaking")
+              }}
+              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl"
+            >
+              1 Round
+              <span className="block text-sm text-amber-400/60 font-normal mt-1">Quick Game</span>
+            </button>
+            <button
+              onClick={() => {
+                setSelectedRoundsToWin(2)
+                setGameMode("matchmaking")
+              }}
+              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl"
+            >
+              Best of 3<span className="block text-sm text-amber-400/60 font-normal mt-1">First to 2 wins</span>
+            </button>
+            <button
+              onClick={() => {
+                setSelectedRoundsToWin(3)
+                setGameMode("matchmaking")
+              }}
+              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl"
+            >
+              Best of 5<span className="block text-sm text-amber-400/60 font-normal mt-1">First to 3 wins</span>
+            </button>
+          </div>
+
+          <button
+            onClick={() => setGameMode("menu")}
+            className="w-full px-8 py-3 bg-black/40 hover:bg-black/60 text-amber-200/60 text-base rounded-xl font-bold transition-all font-serif tracking-widest border border-amber-900/30"
+          >
+            Back
+          </button>
+        </div>
+      </div>
+    )
   }
 
   if (gameMode === "menu") {
@@ -486,7 +561,7 @@ export default function HideAndSeekCards() {
 
           <div className="flex flex-col gap-4 mb-16">
             <button
-              onClick={() => setGameMode("matchmaking")}
+              onClick={() => setGameMode("roundSelection")}
               className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl"
             >
               Find Match
@@ -507,7 +582,8 @@ export default function HideAndSeekCards() {
               <li>• Everyone gets a secret card - but you don&apos;t know which one is yours!</li>
               <li>• On your turn, pick someone to hunt, then flip a card</li>
               <li>• Find their card? They&apos;re out! Find your own? Oops, you&apos;re out!</li>
-              <li>• Win 2 rounds to win the series!</li>
+              <li>• Choose your game mode: Quick (1 round), Best of 3, or Best of 5</li>
+              <li>• Win enough rounds to claim victory!</li>
             </ul>
           </div>
 
@@ -523,6 +599,18 @@ export default function HideAndSeekCards() {
             <p className="text-amber-200/80 text-sm text-left leading-relaxed mt-3 italic">
               I hope you have fun playing, Hide and Seek Cards.
             </p>
+
+            <div className="mt-4 pt-4 border-t border-amber-900/30">
+              <p className="text-amber-200/60 text-sm text-center mb-3">Enjoying the game? Consider donating.</p>
+              <a
+                href="https://v0-hide-and-seek-cards.vercel.app/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block w-full px-6 py-3 bg-amber-700/30 hover:bg-amber-700/50 text-amber-200 text-sm rounded-xl font-bold transition-all text-center font-serif tracking-widest border border-amber-600/50 shadow-lg"
+              >
+                Donate Now
+              </a>
+            </div>
           </div>
         </div>
       </div>
@@ -540,7 +628,7 @@ export default function HideAndSeekCards() {
           </h1>
           {gameMode === "playing" && currentRound > 0 && (
             <p className="font-serif text-amber-500/60 text-xs sm:text-sm tracking-wider">
-              Round {currentRound} of Best of 3
+              {roundsToWin === 1 ? "Single Round" : `Round ${currentRound} of ${getGameModeText(roundsToWin)}`}
             </p>
           )}
         </div>
@@ -624,20 +712,6 @@ export default function HideAndSeekCards() {
             )}
           </div>
 
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3 md:gap-4">
-              {cards.map((card, idx) => (
-                <CardComponent
-                  key={card.id}
-                  card={card}
-                  isSelectable={isCardSelectable(card)}
-                  onClick={() => handleCardClick(idx)}
-                  playerAvatar={getCardPlayerAvatar(card)}
-                />
-              ))}
-            </div>
-          </div>
-
           <div className="absolute bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-30">
             {getVisualPlayer(0) && (
               <PlayerSeat
@@ -656,81 +730,87 @@ export default function HideAndSeekCards() {
               />
             )}
           </div>
+
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20">
+            <div className="relative w-[200px] h-[150px] sm:w-[280px] sm:h-[180px] md:w-[350px] md:h-[220px]">
+              {cards.map((card) => (
+                <CardComponent
+                  key={card.id}
+                  card={card}
+                  totalCards={cards.length}
+                  canFlip={
+                    (phase === "select_card" || phase === "select_target") &&
+                    players[currentPlayerIndex]?.id === playerId &&
+                    (!!localSelectedTarget || !!targetPlayerId)
+                  }
+                  onFlip={() => handlePickCard(card.id)}
+                />
+              ))}
+            </div>
+          </div>
         </div>
 
-        <div className="flex-shrink-0 px-3 sm:px-4 pb-3 sm:pb-4 flex justify-between">
-          <button
-            onClick={() => setShowLeaveModal(true)}
-            className="px-4 sm:px-5 py-2 sm:py-2.5 bg-red-900/60 hover:bg-red-800/80 text-red-100 rounded-lg font-serif font-bold text-sm sm:text-base border border-red-700/50 shadow-xl transition-all"
-          >
-            Leave Game
-          </button>
+        <div className="flex-shrink-0 flex justify-between items-center px-4 sm:px-8 py-3 sm:py-4">
           <button
             onClick={() => setShowRulesModal(true)}
-            className="px-4 sm:px-5 py-2 sm:py-2.5 bg-amber-900/60 hover:bg-amber-800/80 text-amber-100 rounded-lg font-serif font-bold text-sm sm:text-base border border-amber-700/50 shadow-xl transition-all"
+            className="bg-black/40 hover:bg-black/60 text-amber-200/80 px-4 py-2 text-xs sm:text-sm rounded-lg font-serif tracking-wide transition-all border border-amber-900/30"
           >
             Rules
+          </button>
+          <button
+            onClick={() => setShowLeaveModal(true)}
+            className="bg-red-900/30 hover:bg-red-900/50 text-red-200/80 px-4 py-2 text-xs sm:text-sm rounded-lg font-serif tracking-wide transition-all border border-red-900/30"
+          >
+            Leave
           </button>
         </div>
       </div>
 
+      {showRulesModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0a0a0a] border-2 border-amber-900/40 p-6 sm:p-8 rounded-2xl max-w-md w-full">
+            <h2 className="font-serif text-2xl sm:text-3xl text-amber-700 mb-6 tracking-widest">RULES</h2>
+            <ul className="text-amber-200/80 text-sm space-y-3 text-left leading-relaxed mb-6">
+              <li>• Everyone gets a secret card - but you don&apos;t know which one is yours!</li>
+              <li>• On your turn, select a target player to hunt</li>
+              <li>• Then flip one card from the center</li>
+              <li>• Find your target&apos;s card? They&apos;re eliminated!</li>
+              <li>• Flip your own card? You eliminate yourself!</li>
+              <li>• Flip someone else&apos;s card? Turn passes</li>
+              <li>• Last player standing wins the round!</li>
+              {roundsToWin > 1 && <li>• First to {roundsToWin} round wins takes the series!</li>}
+            </ul>
+            <button
+              onClick={() => setShowRulesModal(false)}
+              className="w-full bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 py-3 rounded-xl font-bold font-serif tracking-widest border border-amber-700/50"
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
+
       {showLeaveModal && (
-        <div
-          className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-          onClick={() => setShowLeaveModal(false)}
-        >
-          <div
-            className="bg-black/95 backdrop-blur-xl border-2 border-red-900/50 p-6 sm:p-8 rounded-2xl shadow-2xl max-w-sm w-full"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="font-serif text-red-500 text-xl sm:text-2xl font-bold tracking-wider uppercase mb-4 text-center">
-              Leave Game?
-            </h3>
-            <p className="text-amber-100/80 text-center mb-6 text-sm sm:text-base">
-              If you leave, a bot will take your place. Are you sure?
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0a0a0a] border-2 border-amber-900/40 p-6 sm:p-8 rounded-2xl max-w-md w-full text-center">
+            <h2 className="font-serif text-2xl sm:text-3xl text-amber-700 mb-4 tracking-widest">Leave Game?</h2>
+            <p className="text-amber-200/80 text-sm mb-6">
+              If you leave, you&apos;ll be replaced by a bot and forfeit this game.
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => setShowLeaveModal(false)}
-                className="flex-1 px-4 py-3 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 rounded-xl font-bold transition-all font-serif border border-amber-700/50"
+                className="flex-1 bg-black/40 hover:bg-black/60 text-amber-200/80 py-3 rounded-xl font-bold font-serif tracking-wide border border-amber-900/30"
               >
                 Stay
               </button>
               <button
                 onClick={handleLeaveGame}
-                className="flex-1 px-4 py-3 bg-red-900/60 hover:bg-red-800/80 text-red-100 rounded-xl font-bold transition-all font-serif border border-red-700/50"
+                className="flex-1 bg-red-900/40 hover:bg-red-800/60 text-red-200 py-3 rounded-xl font-bold font-serif tracking-wide border border-red-700/50"
               >
                 Leave
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {showRulesModal && (
-        <div
-          className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-          onClick={() => setShowRulesModal(false)}
-        >
-          <div
-            className="bg-black/95 backdrop-blur-xl border-2 border-amber-900/50 p-6 sm:p-8 rounded-2xl shadow-2xl max-w-sm w-full"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="font-serif text-amber-500 text-lg font-bold tracking-wider uppercase mb-4 text-center border-b border-amber-900/30 pb-3">
-              How to Play
-            </h3>
-            <ul className="text-amber-200/80 text-sm sm:text-base space-y-3 leading-relaxed">
-              <li>• Everyone gets a secret card - but you don&apos;t know which one is yours!</li>
-              <li>• On your turn, pick someone to hunt, then flip a card</li>
-              <li>• Find their card? They&apos;re out! Find your own? Oops, you&apos;re out!</li>
-              <li>• Win 2 rounds to win the series!</li>
-            </ul>
-            <button
-              onClick={() => setShowRulesModal(false)}
-              className="w-full mt-6 px-4 py-3 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 rounded-xl font-bold transition-all font-serif border border-amber-700/50"
-            >
-              Got It
-            </button>
           </div>
         </div>
       )}
