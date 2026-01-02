@@ -8,7 +8,6 @@ import CardComponent from "@/components/card-component"
 import MatchmakingScreen from "@/components/matchmaking-screen"
 import OfflineGame from "@/components/offline-game"
 import {
-  sendEmojiReaction,
   finishGame,
   leaveGame,
   sendHeartbeat,
@@ -16,16 +15,14 @@ import {
   makePickCard,
   getEmojiReactions,
   checkBotOnlyGame,
+  voteForRematch,
 } from "@/app/actions/multiplayer"
 
 const TURN_TIMEOUT_MS = 15000
-const GAME_START_DELAY_MS = 3000 // Reduced game start countdown from 5 to 3 seconds
+const GAME_START_DELAY_MS = 3000
 const POLL_INTERVAL_MS = 500
 
-// Game turn order: the sequence in which players take turns (server indices)
 const GAME_TURN_ORDER = [0, 2, 1, 3]
-// Visual positions in counter-clockwise order around the screen
-// Bottom(0) -> Right(3) -> Top(1) -> Left(2)
 const VISUAL_COUNTER_CLOCKWISE = [0, 3, 1, 2]
 
 export default function HideAndSeekCards() {
@@ -50,6 +47,7 @@ export default function HideAndSeekCards() {
   const isMountedRef = useRef(true)
   const [gameMode, setGameMode] = useState<"menu" | "matchmaking" | "playing" | "offline">("menu")
   const [localSelectedTarget, setLocalSelectedTarget] = useState<string | null>(null)
+  const [hasVotedRematch, setHasVotedRematch] = useState(false)
 
   useEffect(() => {
     isMountedRef.current = true
@@ -93,25 +91,21 @@ export default function HideAndSeekCards() {
   const targetPlayerId = sharedGameState?.targetPlayerId ?? null
   const phase = sharedGameState?.phase ?? "waiting"
   const lastMessage = sharedGameState?.lastMessage ?? "Welcome to Hide and Seek Cards."
-  const winner = sharedGameState?.winnerId ? players.find((p) => p.id === sharedGameState.winnerId) : null
+  const currentRound = sharedGameState?.currentRound ?? 1
+  const roundWinnerId = sharedGameState?.roundWinnerId ?? null
+  const seriesWinnerId = sharedGameState?.seriesWinnerId ?? null
+  const rematchVotes = sharedGameState?.rematchVotes ?? []
+  const roundWinner = roundWinnerId ? players.find((p) => p.id === roundWinnerId) : null
+  const seriesWinner = seriesWinnerId ? players.find((p) => p.id === seriesWinnerId) : null
 
   const localPlayerGameIndex = players.findIndex((p) => p.id === playerId)
-
-  // Find local player's position in the game turn order
   const myTurnPosition = GAME_TURN_ORDER.indexOf(localPlayerGameIndex)
 
   const getVisualPlayer = (visualPosition: number) => {
-    // Visual positions: 0=bottom, 1=top, 2=left, 3=right
-    // We want: local player at bottom, with turn order going CLOCKWISE (bottom -> left -> top -> right)
     if (localPlayerGameIndex === -1 || players.length === 0) return players[visualPosition]
-
-    // Find which step in the visual counter-clockwise order this position is
     const visualStep = VISUAL_COUNTER_CLOCKWISE.indexOf(visualPosition)
-
-    // This makes turns appear to go clockwise visually
     const targetTurnPosition = (myTurnPosition - visualStep + 4) % 4
     const targetServerIndex = GAME_TURN_ORDER[targetTurnPosition]
-
     return players[targetServerIndex]
   }
 
@@ -143,14 +137,14 @@ export default function HideAndSeekCards() {
             setSharedGameState(state)
           }
 
-          // This ensures eliminated players see the defeat/victory screen
           if (
             state.phase === "game_over" ||
+            state.phase === "series_end" ||
+            state.phase === "round_end" ||
             state.phase === "reveal_result" ||
             state.phase === "elimination_animation" ||
             state.pendingEliminationId
           ) {
-            // Game is ending or in transition - don't terminate, let it play out
             return
           }
         }
@@ -170,12 +164,11 @@ export default function HideAndSeekCards() {
           setPlayerReactions(reactions || {})
         }
       } catch {
-        // Silent fail - will retry on next poll
+        // Silent fail
       }
     }
 
     const pollInterval = setInterval(pollGameState, POLL_INTERVAL_MS)
-
     return () => clearInterval(pollInterval)
   }, [gameMode, currentLobby, playerId])
 
@@ -194,12 +187,18 @@ export default function HideAndSeekCards() {
 
     updateCountdown()
     const countdownInterval = setInterval(updateCountdown, 100)
-
     return () => clearInterval(countdownInterval)
   }, [phase, sharedGameState?.gameStartTime])
 
   useEffect(() => {
-    if (!sharedGameState?.turnStartTime || phase === "game_over" || phase === "reveal_result" || phase === "waiting") {
+    if (
+      !sharedGameState?.turnStartTime ||
+      phase === "game_over" ||
+      phase === "series_end" ||
+      phase === "round_end" ||
+      phase === "reveal_result" ||
+      phase === "waiting"
+    ) {
       setTurnTimeRemaining(null)
       return
     }
@@ -213,7 +212,6 @@ export default function HideAndSeekCards() {
 
     updateTimer()
     const timerInterval = setInterval(updateTimer, 100)
-
     return () => clearInterval(timerInterval)
   }, [sharedGameState?.turnStartTime, phase])
 
@@ -226,20 +224,15 @@ export default function HideAndSeekCards() {
       }
     }, 5000)
 
-    // Send initial heartbeat immediately
     sendHeartbeat(playerId)
-
     return () => clearInterval(heartbeatInterval)
   }, [gameMode, playerId])
 
   const handleSelectTarget = useCallback(
     (id: string) => {
       if (phase !== "select_target") return
-
       const currentPlayer = players[currentPlayerIndex]
       if (currentPlayer?.id !== playerId) return
-
-      // Just set local state - don't commit to server yet
       setLocalSelectedTarget(id)
     },
     [phase, players, currentPlayerIndex, playerId],
@@ -248,11 +241,9 @@ export default function HideAndSeekCards() {
   const handlePickCard = useCallback(
     async (cardId: string) => {
       if (phase !== "select_target" && phase !== "select_card") return
-
       const currentPlayer = players[currentPlayerIndex]
       if (currentPlayer?.id !== playerId) return
 
-      // Need a target selected (either local or from server state)
       const targetToUse = localSelectedTarget || targetPlayerId
       if (!targetToUse) return
 
@@ -260,7 +251,7 @@ export default function HideAndSeekCards() {
       if (newState && isMountedRef.current && Array.isArray(newState.players) && Array.isArray(newState.cards)) {
         lastVersionRef.current = newState.version
         setSharedGameState(newState)
-        setLocalSelectedTarget(null) // Clear local selection after successful pick
+        setLocalSelectedTarget(null)
       }
     },
     [phase, players, currentPlayerIndex, playerId, localSelectedTarget, targetPlayerId],
@@ -270,6 +261,7 @@ export default function HideAndSeekCards() {
     setCurrentLobby(lobby)
     setGameMode("playing")
     lastVersionRef.current = 0
+    setHasVotedRematch(false)
 
     try {
       const state = await getGameState(playerId)
@@ -293,6 +285,7 @@ export default function HideAndSeekCards() {
     setGameStartCountdown(null)
     lastVersionRef.current = 0
     setLocalSelectedTarget(null)
+    setHasVotedRematch(false)
     setGameMode("matchmaking")
   }
 
@@ -304,6 +297,28 @@ export default function HideAndSeekCards() {
     setSharedGameState(null)
     lastVersionRef.current = 0
   }
+
+  const handleVoteRematch = async () => {
+    if (hasVotedRematch) return
+    setHasVotedRematch(true)
+    try {
+      await voteForRematch(playerId)
+    } catch {
+      setHasVotedRematch(false)
+    }
+  }
+
+  useEffect(() => {
+    if (phase === "waiting" && currentRound === 1) {
+      setHasVotedRematch(false)
+    }
+  }, [phase, currentRound])
+
+  useEffect(() => {
+    if (phase === "select_target" && !targetPlayerId) {
+      setLocalSelectedTarget(null)
+    }
+  }, [phase, targetPlayerId])
 
   const isCardSelectable = (card: Card) => {
     const currentPlayer = players[currentPlayerIndex]
@@ -325,48 +340,122 @@ export default function HideAndSeekCards() {
     return players.find((p) => p.id === card.ownerId)?.avatar || "/placeholder.svg"
   }
 
-  const handleSendReaction = async (emoji: string) => {
-    if (!playerId) return
-    try {
-      await sendEmojiReaction(playerId, emoji)
-      if (isMountedRef.current) {
-        setPlayerReactions((prev) => ({ ...prev, [playerId]: emoji }))
-      }
-    } catch {
-      // Silent fail
-    }
-  }
-
-  useEffect(() => {
-    if (phase === "select_target" && !targetPlayerId) {
-      // New turn started, clear any stale local selection
-      setLocalSelectedTarget(null)
-    }
-  }, [phase, targetPlayerId])
-
-  if (winner && gameMode === "playing") {
+  // Round end screen
+  if (phase === "round_end" && roundWinner && gameMode === "playing") {
     return (
       <div className="fixed inset-0 bg-black/95 backdrop-blur-xl z-[400] flex items-center justify-center p-4">
         <div className="bg-[#0f0a05] border-2 border-amber-800/60 p-8 sm:p-10 rounded-3xl text-center max-w-md w-full shadow-[0_0_100px_rgba(217,119,6,0.2)]">
-          <h2 className="font-serif text-3xl sm:text-4xl md:text-5xl text-amber-700 mb-6 tracking-widest uppercase font-bold">
-            {winner.id === playerId ? "Victory!" : "Defeat"}
+          <h2 className="font-serif text-2xl sm:text-3xl text-amber-600 mb-2 tracking-widest uppercase">
+            Round {currentRound}
           </h2>
+          <h3 className="font-serif text-3xl sm:text-4xl md:text-5xl text-amber-700 mb-6 tracking-widest uppercase font-bold">
+            {roundWinner.id === playerId ? "Round Won!" : "Round Lost"}
+          </h3>
           <div className="relative inline-block mb-6">
             <img
-              src={winner.avatar || "/placeholder.svg"}
-              alt={winner.name}
-              className="w-28 h-28 sm:w-36 sm:h-36 rounded-full border-4 border-amber-700 shadow-2xl object-cover"
+              src={roundWinner.avatar || "/placeholder.svg"}
+              alt={roundWinner.name}
+              className="w-24 h-24 sm:w-28 sm:h-28 rounded-full border-4 border-amber-700 shadow-2xl object-cover"
             />
           </div>
-          <p className="text-lg sm:text-xl text-amber-50/80 mb-8 font-serif font-light tracking-wide italic">
-            {winner.name} persists.
+          <p className="text-lg sm:text-xl text-amber-50/80 mb-4 font-serif font-light tracking-wide italic">
+            {roundWinner.name} wins this round!
           </p>
-          <button
-            onClick={handlePlayAgain}
-            className="w-full px-8 py-4 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-base sm:text-lg rounded-2xl font-bold transition-all font-serif tracking-widest border border-amber-700/50 shadow-xl"
-          >
-            Find New Game
-          </button>
+          <div className="flex justify-center gap-6 mb-6">
+            {sharedGameState?.players.map((p) => (
+              <div key={p.id} className="flex flex-col items-center">
+                <img
+                  src={p.avatar || "/placeholder.svg"}
+                  alt={p.name}
+                  className="w-10 h-10 rounded-full border-2 border-amber-700/50"
+                />
+                <div className="flex gap-1 mt-1">
+                  {Array.from({ length: p.seriesWins || 0 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="w-3 h-3 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 border border-amber-300"
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="text-amber-500/80 font-serif text-sm">Next round starting...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Series end screen
+  if (phase === "series_end" && seriesWinner && gameMode === "playing") {
+    const humanPlayers = sharedGameState?.players.filter((p) => p.isHuman) || []
+    const voterAvatars = rematchVotes.map((id) => players.find((p) => p.id === id)).filter(Boolean)
+
+    return (
+      <div className="fixed inset-0 bg-black/95 backdrop-blur-xl z-[400] flex items-center justify-center p-4">
+        <div className="bg-[#0f0a05] border-2 border-amber-800/60 p-8 sm:p-10 rounded-3xl text-center max-w-md w-full shadow-[0_0_100px_rgba(217,119,6,0.2)]">
+          <h2 className="font-serif text-2xl sm:text-3xl text-amber-600 mb-2 tracking-widest uppercase">
+            Series Complete
+          </h2>
+          <h3 className="font-serif text-3xl sm:text-4xl md:text-5xl text-amber-700 mb-6 tracking-widest uppercase font-bold">
+            {seriesWinner.id === playerId ? "Victory!" : "Defeat"}
+          </h3>
+          <div className="relative inline-block mb-6">
+            <img
+              src={seriesWinner.avatar || "/placeholder.svg"}
+              alt={seriesWinner.name}
+              className="w-28 h-28 sm:w-36 sm:h-36 rounded-full border-4 border-amber-700 shadow-2xl object-cover"
+            />
+            <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
+              {Array.from({ length: 2 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="w-5 h-5 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 border-2 border-amber-300 shadow-lg"
+                />
+              ))}
+            </div>
+          </div>
+          <p className="text-lg sm:text-xl text-amber-50/80 mb-8 font-serif font-light tracking-wide italic">
+            {seriesWinner.name} wins the series!
+          </p>
+
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={handleVoteRematch}
+              disabled={hasVotedRematch}
+              className={`relative w-full px-8 py-4 rounded-2xl font-bold transition-all font-serif tracking-widest border shadow-xl ${
+                hasVotedRematch
+                  ? "bg-amber-900/20 text-amber-500/60 border-amber-700/30 cursor-default"
+                  : "bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 border-amber-700/50"
+              }`}
+            >
+              {hasVotedRematch ? "Waiting for others..." : "Play Again (Same Players)"}
+              {voterAvatars.length > 0 && (
+                <div className="absolute -top-2 -right-2 flex -space-x-2">
+                  {voterAvatars.map((voter) => (
+                    <img
+                      key={voter!.id}
+                      src={voter!.avatar || "/placeholder.svg"}
+                      alt={voter!.name}
+                      className="w-6 h-6 rounded-full border-2 border-amber-600 shadow-md"
+                    />
+                  ))}
+                </div>
+              )}
+            </button>
+            {humanPlayers.length > 1 && (
+              <p className="text-amber-500/60 text-xs">
+                {rematchVotes.length} of {humanPlayers.length} voted to rematch
+              </p>
+            )}
+
+            <button
+              onClick={handlePlayAgain}
+              className="w-full px-8 py-4 bg-black/40 hover:bg-black/60 text-amber-200/80 text-base sm:text-lg rounded-2xl font-bold transition-all font-serif tracking-widest border border-amber-700/30 shadow-xl"
+            >
+              Find New Game
+            </button>
+          </div>
         </div>
       </div>
     )
@@ -418,7 +507,7 @@ export default function HideAndSeekCards() {
               <li>• Everyone gets a secret card - but you don&apos;t know which one is yours!</li>
               <li>• On your turn, pick someone to hunt, then flip a card</li>
               <li>• Find their card? They&apos;re out! Find your own? Oops, you&apos;re out!</li>
-              <li>• Be the last player standing to win</li>
+              <li>• Win 2 rounds to win the series!</li>
             </ul>
           </div>
 
@@ -449,6 +538,11 @@ export default function HideAndSeekCards() {
           <h1 className="font-serif text-xl sm:text-2xl md:text-3xl text-amber-700 tracking-widest drop-shadow-[0_0_20px_rgba(217,119,6,0.5)]">
             HIDE & SEEK CARDS
           </h1>
+          {gameMode === "playing" && currentRound > 0 && (
+            <p className="font-serif text-amber-500/60 text-xs sm:text-sm tracking-wider">
+              Round {currentRound} of Best of 3
+            </p>
+          )}
         </div>
 
         <div className="flex-shrink-0 px-3 sm:px-6 md:px-12 pb-2">
@@ -473,7 +567,6 @@ export default function HideAndSeekCards() {
         )}
 
         <div className="flex-grow relative min-h-[350px] sm:min-h-[400px]">
-          {/* Top player - visual position 1 */}
           <div className="absolute top-4 sm:top-6 left-1/2 -translate-x-1/2 z-30">
             {getVisualPlayer(1) && (
               <PlayerSeat
@@ -488,11 +581,11 @@ export default function HideAndSeekCards() {
                 onSelectTarget={handleSelectTarget}
                 turnTimeRemaining={isVisualPositionActive(1) ? turnTimeRemaining : null}
                 displayedEmoji={playerReactions[getVisualPlayer(1)?.id || ""]}
+                seriesWins={sharedGameState?.players.find((p) => p.id === getVisualPlayer(1)?.id)?.seriesWins || 0}
               />
             )}
           </div>
 
-          {/* Left player - visual position 2 */}
           <div className="absolute top-1/2 -translate-y-1/2 left-2 sm:left-4 md:left-8 z-30">
             {getVisualPlayer(2) && (
               <PlayerSeat
@@ -507,11 +600,11 @@ export default function HideAndSeekCards() {
                 onSelectTarget={handleSelectTarget}
                 turnTimeRemaining={isVisualPositionActive(2) ? turnTimeRemaining : null}
                 displayedEmoji={playerReactions[getVisualPlayer(2)?.id || ""]}
+                seriesWins={sharedGameState?.players.find((p) => p.id === getVisualPlayer(2)?.id)?.seriesWins || 0}
               />
             )}
           </div>
 
-          {/* Right player - visual position 3 */}
           <div className="absolute top-1/2 -translate-y-1/2 right-2 sm:right-4 md:right-8 z-30">
             {getVisualPlayer(3) && (
               <PlayerSeat
@@ -526,6 +619,7 @@ export default function HideAndSeekCards() {
                 onSelectTarget={handleSelectTarget}
                 turnTimeRemaining={isVisualPositionActive(3) ? turnTimeRemaining : null}
                 displayedEmoji={playerReactions[getVisualPlayer(3)?.id || ""]}
+                seriesWins={sharedGameState?.players.find((p) => p.id === getVisualPlayer(3)?.id)?.seriesWins || 0}
               />
             )}
           </div>
@@ -544,7 +638,6 @@ export default function HideAndSeekCards() {
             </div>
           </div>
 
-          {/* Bottom player - visual position 0 (always local player) */}
           <div className="absolute bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-30">
             {getVisualPlayer(0) && (
               <PlayerSeat
@@ -559,6 +652,7 @@ export default function HideAndSeekCards() {
                 onSelectTarget={handleSelectTarget}
                 turnTimeRemaining={isVisualPositionActive(0) ? turnTimeRemaining : null}
                 displayedEmoji={playerReactions[getVisualPlayer(0)?.id || ""]}
+                seriesWins={sharedGameState?.players.find((p) => p.id === getVisualPlayer(0)?.id)?.seriesWins || 0}
               />
             )}
           </div>
@@ -629,7 +723,7 @@ export default function HideAndSeekCards() {
               <li>• Everyone gets a secret card - but you don&apos;t know which one is yours!</li>
               <li>• On your turn, pick someone to hunt, then flip a card</li>
               <li>• Find their card? They&apos;re out! Find your own? Oops, you&apos;re out!</li>
-              <li>• Be the last player standing to win</li>
+              <li>• Win 2 rounds to win the series!</li>
             </ul>
             <button
               onClick={() => setShowRulesModal(false)}

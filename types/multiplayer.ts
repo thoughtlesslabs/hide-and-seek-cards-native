@@ -41,6 +41,7 @@ export interface SharedPlayer {
   isEliminated: boolean
   cardValue: number
   avatar: string
+  seriesWins: number
 }
 
 export interface SharedGameState {
@@ -57,6 +58,8 @@ export interface SharedGameState {
     | "flipping"
     | "elimination_animation"
     | "game_over"
+    | "round_end"
+    | "series_end"
   lastMessage: string
   winner?: string | null
   winnerId: string | null
@@ -69,4 +72,9 @@ export interface SharedGameState {
   revealResultTime: number | null
   flippingStartTime: number | null
   eliminationAnimationTime: number | null
+  currentRound: number
+  roundEndTime: number | null
+  roundWinnerId: string | null
+  seriesWinnerId: string | null
+  rematchVotes: string[] // Array of player IDs who voted for rematch
 }

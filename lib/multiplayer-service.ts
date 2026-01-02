@@ -14,6 +14,8 @@ const BOT_THINKING_DELAY_MS = 2000
 const REVEAL_RESULT_DURATION_MS = 4000
 const ELIMINATION_ANIMATION_DURATION_MS = 2000
 const FLIP_ANIMATION_DURATION_MS = 800
+const ROUND_END_DELAY_MS = 3000
+const SERIES_WINS_NEEDED = 2
 
 const COUNTER_CLOCKWISE_ORDER = [0, 2, 1, 3]
 
@@ -188,6 +190,7 @@ async function initializeGame(lobby: Lobby): Promise<SharedGameState> {
     isEliminated: false,
     cardValue: idx,
     avatar: p.avatar,
+    seriesWins: 0, // Initialize series wins to 0
   }))
 
   const cards: SharedCard[] = players.map((p, idx) => ({
@@ -219,6 +222,11 @@ async function initializeGame(lobby: Lobby): Promise<SharedGameState> {
     revealResultTime: null,
     eliminationAnimationTime: null,
     flippingStartTime: null,
+    currentRound: 1, // Add series state fields
+    roundEndTime: null,
+    roundWinnerId: null,
+    seriesWinnerId: null,
+    rematchVotes: [],
   }
 
   await saveGameState(state)
@@ -546,29 +554,46 @@ async function processGameTick(state: SharedGameState): Promise<SharedGameState>
     return state
   }
 
-  // Handle reveal result phase
-  if (state.phase === "reveal_result" && state.revealResultTime) {
-    const elapsed = now - state.revealResultTime
-    if (elapsed >= REVEAL_RESULT_DURATION_MS) {
-      return await processAfterReveal(state)
+  if (state.phase === "round_end" && state.roundEndTime) {
+    const elapsed = now - state.roundEndTime
+    if (elapsed >= ROUND_END_DELAY_MS) {
+      return await startNextRound(state)
     }
     return state
   }
 
-  if (state.phase === "flipping" && state.flippingStartTime) {
-    const elapsed = now - state.flippingStartTime
-    if (elapsed >= FLIP_ANIMATION_DURATION_MS) {
-      return await processAfterFlipping(state)
+  // Don't process during transitional phases or series_end
+  if (
+    state.phase === "game_over" ||
+    state.phase === "series_end" ||
+    state.phase === "reveal_result" ||
+    state.phase === "flipping" ||
+    state.phase === "elimination_animation"
+  ) {
+    // Handle reveal result duration
+    if (state.phase === "reveal_result" && state.revealResultTime) {
+      const elapsed = now - state.revealResultTime
+      if (elapsed >= REVEAL_RESULT_DURATION_MS) {
+        return await processAfterReveal(state)
+      }
     }
-    return state
-  }
 
-  // Handle elimination animation phase
-  if (state.phase === "elimination_animation" && state.eliminationAnimationTime) {
-    const elapsed = now - state.eliminationAnimationTime
-    if (elapsed >= ELIMINATION_ANIMATION_DURATION_MS) {
-      return await processAfterElimination(state)
+    // Handle flipping duration
+    if (state.phase === "flipping" && state.flippingStartTime) {
+      const elapsed = now - state.flippingStartTime
+      if (elapsed >= FLIP_ANIMATION_DURATION_MS) {
+        return await processAfterFlipping(state)
+      }
     }
+
+    // Handle elimination animation duration
+    if (state.phase === "elimination_animation" && state.eliminationAnimationTime) {
+      const elapsed = now - state.eliminationAnimationTime
+      if (elapsed >= ELIMINATION_ANIMATION_DURATION_MS) {
+        return await processAfterElimination(state)
+      }
+    }
+
     return state
   }
 
@@ -663,10 +688,41 @@ async function processAfterElimination(state: SharedGameState): Promise<SharedGa
 
   if (activePlayers.length <= 1) {
     const winner = activePlayers[0]
-    state.phase = "game_over"
-    state.winner = winner?.name || "No one"
-    state.winnerId = winner?.id || null
-    state.lastMessage = winner ? `${winner.name} is the last one standing!` : "No survivors..."
+
+    if (winner) {
+      // Increment the round winner's series wins
+      const winnerIndex = state.players.findIndex((p) => p.id === winner.id)
+      if (winnerIndex !== -1) {
+        state.players[winnerIndex].seriesWins++
+      }
+
+      const updatedWinner = state.players[winnerIndex]
+
+      // Check if this player has won the series (best of 3 = 2 wins)
+      if (updatedWinner.seriesWins >= SERIES_WINS_NEEDED) {
+        // Series is over
+        state.phase = "series_end"
+        state.winner = winner.name
+        state.winnerId = winner.id
+        state.seriesWinnerId = winner.id
+        state.roundWinnerId = winner.id
+        state.lastMessage = `${winner.name} wins the series!`
+      } else {
+        // Round is over, but series continues
+        state.phase = "round_end"
+        state.roundWinnerId = winner.id
+        state.roundEndTime = Date.now()
+        state.lastMessage = `${winner.name} wins Round ${state.currentRound}!`
+      }
+    } else {
+      // No winner (edge case)
+      state.phase = "series_end"
+      state.winner = "No one"
+      state.winnerId = null
+      state.seriesWinnerId = null
+      state.lastMessage = "No survivors..."
+    }
+
     state.pendingEliminationId = null
     state.eliminationAnimationTime = null
     state.version++
@@ -680,6 +736,16 @@ async function processAfterElimination(state: SharedGameState): Promise<SharedGa
   state.pendingEliminationId = null
   state.eliminationAnimationTime = null
 
+  state.version++
+  await saveGameState(state)
+  return state
+}
+
+async function processAfterRoundEnd(state: SharedGameState): Promise<SharedGameState> {
+  // Reset game state for a new round
+  state.phase = "waiting"
+  state.gameStartTime = Date.now()
+  state.lastMessage = "The shadows gather for a new round..."
   state.version++
   await saveGameState(state)
   return state
@@ -846,6 +912,108 @@ export async function checkTurnTimeout(lobbyId: string): Promise<SharedGameState
   return state
 }
 
+async function startNextRound(state: SharedGameState): Promise<SharedGameState> {
+  // Reset all players to not eliminated, keep seriesWins
+  state.players = state.players.map((p) => ({
+    ...p,
+    isEliminated: false,
+  }))
+
+  // Create fresh cards for all players
+  const cards: SharedCard[] = state.players.map((p, idx) => ({
+    id: `card-${idx}-r${state.currentRound + 1}`,
+    ownerId: p.id,
+    isRevealed: false,
+    position: idx,
+  }))
+
+  // Shuffle cards
+  state.cards = cards.sort(() => Math.random() - 0.5).map((c, idx) => ({ ...c, position: idx }))
+
+  // Increment round
+  state.currentRound++
+
+  // Reset game state for new round
+  state.currentPlayerIndex = getNextClockwiseIndex(0)
+  state.targetPlayerId = null
+  state.phase = "waiting"
+  state.gameStartTime = Date.now()
+  state.turnStartTime = null
+  state.pendingEliminationId = null
+  state.revealResultTime = null
+  state.flippingStartTime = null
+  state.eliminationAnimationTime = null
+  state.roundEndTime = null
+  state.roundWinnerId = null
+  state.winner = null
+  state.winnerId = null
+  state.lastMessage = `Round ${state.currentRound} begins...`
+
+  state.version++
+  await saveGameState(state)
+  return state
+}
+
+async function voteRematch(playerId: string): Promise<SharedGameState | null> {
+  const sanitizedPlayerId = sanitizeId(playerId)
+  if (!sanitizedPlayerId) return null
+
+  const lobbyId = await getPlayerLobbyId(sanitizedPlayerId)
+  if (!lobbyId) return null
+
+  const state = await getGameState(lobbyId)
+  if (!state || state.phase !== "series_end") return state
+
+  // Add vote if not already voted
+  if (!state.rematchVotes.includes(sanitizedPlayerId)) {
+    state.rematchVotes.push(sanitizedPlayerId)
+  }
+
+  // Check if all human players have voted
+  const humanPlayers = state.players.filter((p) => p.isHuman)
+  const allHumansVoted = humanPlayers.every((p) => state.rematchVotes.includes(p.id))
+
+  if (allHumansVoted && humanPlayers.length > 0) {
+    // Start a new series - reset everything including seriesWins
+    state.players = state.players.map((p) => ({
+      ...p,
+      isEliminated: false,
+      seriesWins: 0,
+    }))
+
+    // Create fresh cards
+    const cards: SharedCard[] = state.players.map((p, idx) => ({
+      id: `card-${idx}-rematch`,
+      ownerId: p.id,
+      isRevealed: false,
+      position: idx,
+    }))
+
+    state.cards = cards.sort(() => Math.random() - 0.5).map((c, idx) => ({ ...c, position: idx }))
+    state.currentRound = 1
+    state.currentPlayerIndex = getNextClockwiseIndex(0)
+    state.targetPlayerId = null
+    state.phase = "waiting"
+    state.gameStartTime = Date.now()
+    state.turnStartTime = null
+    state.pendingEliminationId = null
+    state.revealResultTime = null
+    state.flippingStartTime = null
+    state.eliminationAnimationTime = null
+    state.roundEndTime = null
+    state.roundWinnerId = null
+    state.seriesWinnerId = null
+    state.winner = null
+    state.winnerId = null
+    state.rematchVotes = []
+    state.lastMessage = "New series begins..."
+  }
+
+  state.version++
+  await saveGameState(state)
+  return state
+}
+
 export const multiplayerService = {
   joinQueue,
   getLobby,
@@ -861,4 +1029,5 @@ export const multiplayerService = {
   pickCard,
   checkTurnTimeout,
   checkAndTerminateBotOnlyGame,
+  voteRematch,
 }

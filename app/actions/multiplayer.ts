@@ -106,3 +106,8 @@ export async function checkBotOnlyGame(lobbyId: string): Promise<boolean> {
   if (!lobbyId || typeof lobbyId !== "string") return false
   return await multiplayerService.checkAndTerminateBotOnlyGame(lobbyId)
 }
+
+export async function voteForRematch(playerId: string): Promise<SharedGameState | null> {
+  if (!playerId || typeof playerId !== "string") return null
+  return await multiplayerService.voteRematch(playerId)
+}
