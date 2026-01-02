@@ -85,9 +85,9 @@ export default function PlayerSeat({
       {showEmojiPicker && isLocalPlayer && (
         <div
           ref={emojiPickerRef}
-          className="absolute -top-20 sm:-top-24 left-1/2 -translate-x-1/2 z-50 bg-black/95 border border-amber-900/50 rounded-xl p-2 shadow-xl"
+          className="absolute -top-20 sm:-top-24 left-1/2 -translate-x-1/2 z-50 bg-black/95 border border-amber-900/50 rounded-xl p-3 shadow-xl"
         >
-          <div className="grid grid-cols-4 gap-1">
+          <div className="grid grid-cols-4 gap-2">
             {ALLOWED_EMOJIS.map((emoji) => (
               <button
                 key={emoji}
@@ -95,7 +95,7 @@ export default function PlayerSeat({
                   e.stopPropagation()
                   handleEmojiSelect(emoji)
                 }}
-                className="text-2xl hover:scale-125 transition-transform p-1 hover:bg-amber-900/30 rounded"
+                className="text-2xl hover:scale-125 transition-transform p-2 hover:bg-amber-900/30 rounded"
               >
                 {emoji}
               </button>
