@@ -7,14 +7,12 @@ export const redis = new Redis({
 
 // Key prefixes for Redis
 export const REDIS_KEYS = {
-  LOBBY: "lobby:",
-  PLAYER_LOBBY: "player:lobby:",
-  PLAYER_INFO: "player:info:",
-  WAITING_LOBBIES: "waiting:lobbies",
-  REACTIONS: "reactions:",
+  LOBBY: "lobby:", // lobby:{lobbyId} -> Lobby object
+  PLAYER_LOBBY: "player:lobby:", // player:lobby:{odId} -> lobbyId
+  PLAYER_INFO: "player:info:", // player:info:{playerId} -> LobbyPlayer object
+  WAITING_LOBBIES: "waiting:lobbies", // Sorted set of waiting lobbies by creation time
+  REACTIONS: "reactions:", // reactions:{lobbyId} -> list of reactions
 } as const
 
 // TTL for Redis keys (1 hour)
 export const REDIS_TTL = 3600
-
-export const kv = redis

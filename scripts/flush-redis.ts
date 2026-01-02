@@ -6,29 +6,19 @@ const redis = new Redis({
 })
 
 async function flushAllGameData() {
-  console.log("=== Flushing all game data from Redis ===")
-  console.log("")
+  console.log("Flushing all game data from Redis...")
 
+  // Get all keys
   const keys = await redis.keys("*")
-  console.log(`Found ${keys.length} keys to delete`)
+  console.log(`Found ${keys.length} keys`)
 
   if (keys.length > 0) {
-    // Delete in batches to avoid issues
-    const batchSize = 50
-    for (let i = 0; i < keys.length; i += batchSize) {
-      const batch = keys.slice(i, i + batchSize)
-      await redis.del(...batch)
-      console.log(`Deleted batch ${Math.floor(i / batchSize) + 1}`)
-    }
-    console.log("")
-    console.log("All keys deleted successfully!")
-  } else {
-    console.log("Redis is already empty")
+    // Delete all keys
+    await redis.del(...keys)
+    console.log("All keys deleted")
   }
 
-  console.log("")
-  console.log("=== Done! Redis is now clean ===")
-  console.log("You can now start a fresh game with the new best-of-3 series features.")
+  console.log("Done! Redis is now clean.")
 }
 
 flushAllGameData().catch(console.error)

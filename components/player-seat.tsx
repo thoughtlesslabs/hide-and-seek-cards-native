@@ -11,7 +11,6 @@ interface PlayerSeatProps {
   onSelectTarget: (id: string) => void
   displayedEmoji?: string | null
   turnTimeRemaining?: number | null
-  seriesWins?: number // Added series wins prop
 }
 
 export default function PlayerSeat({
@@ -22,7 +21,6 @@ export default function PlayerSeat({
   onSelectTarget,
   displayedEmoji,
   turnTimeRemaining,
-  seriesWins = 0, // Default to 0 wins
 }: PlayerSeatProps) {
   const [showEmoji, setShowEmoji] = useState(false)
 
@@ -68,16 +66,6 @@ export default function PlayerSeat({
         </div>
         {isActive && (
           <div className="absolute -top-1 -right-1 w-4 h-4 sm:w-5 sm:h-5 bg-amber-500 rounded-full animate-pulse shadow-[0_0_12px_rgba(217,119,6,0.9)]"></div>
-        )}
-        {seriesWins > 0 && (
-          <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 flex gap-1">
-            {Array.from({ length: seriesWins }).map((_, i) => (
-              <div
-                key={i}
-                className="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-gradient-to-br from-yellow-400 to-amber-600 border-2 border-yellow-300 shadow-[0_0_8px_rgba(251,191,36,0.8)]"
-              />
-            ))}
-          </div>
         )}
       </div>
       <div className="flex flex-col items-center min-h-[2.5rem] sm:min-h-[3rem]">

@@ -106,24 +106,3 @@ export async function checkBotOnlyGame(lobbyId: string): Promise<boolean> {
   if (!lobbyId || typeof lobbyId !== "string") return false
   return await multiplayerService.checkAndTerminateBotOnlyGame(lobbyId)
 }
-
-export async function createPrivateGame(playerId: string): Promise<{ player: LobbyPlayer; roomCode: string } | null> {
-  if (!playerId || typeof playerId !== "string") return null
-  return await multiplayerService.createPrivateLobby(playerId)
-}
-
-export async function joinPrivateGame(playerId: string, roomCode: string): Promise<LobbyPlayer | null> {
-  if (!playerId || typeof playerId !== "string") return null
-  if (!roomCode || typeof roomCode !== "string" || roomCode.length !== 4) return null
-  return await multiplayerService.joinPrivateLobby(playerId, roomCode)
-}
-
-export async function startPrivateGame(playerId: string): Promise<boolean> {
-  if (!playerId || typeof playerId !== "string") return false
-  return await multiplayerService.startPrivateGame(playerId)
-}
-
-export async function voteForRematch(playerId: string): Promise<SharedGameState | null> {
-  if (!playerId || typeof playerId !== "string") return null
-  return await multiplayerService.voteRematch(playerId)
-}
