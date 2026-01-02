@@ -133,7 +133,7 @@ export default function PlayerSeat({
       </button>
 
       {/* Player name and timer */}
-      <div className="flex flex-col items-center min-h-[2.5rem] sm:min-h-[3rem]">
+      <div className="flex flex-col items-center min-h-[2.5rem] sm:min-h-[3rem] mt-2 sm:mt-3">
         <span
           className={`
           font-serif text-sm sm:text-base md:text-lg tracking-wider uppercase font-bold whitespace-nowrap

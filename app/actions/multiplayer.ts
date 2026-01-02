@@ -95,6 +95,8 @@ export async function makePickCard(
   return await multiplayerService.pickCard(playerId, cardId, targetId)
 }
 
+export const pickCard = makePickCard
+
 export async function checkTurnTimeout(lobbyId: string): Promise<SharedGameState | null> {
   if (!lobbyId || typeof lobbyId !== "string") return null
   return await multiplayerService.checkTurnTimeout(lobbyId)

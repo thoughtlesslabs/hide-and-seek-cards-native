@@ -8,19 +8,20 @@ import CardComponent from "@/components/card-component"
 import MatchmakingScreen from "@/components/matchmaking-screen"
 import OfflineGame from "@/components/offline-game"
 import {
-  leaveGame,
-  sendHeartbeat,
   getGameState,
-  makePickCard,
-  getEmojiReactions,
-  checkBotOnlyGame,
+  leaveGame,
+  pickCard,
+  sendEmojiReaction,
   voteForRematch,
-  sendEmojiReaction, // Add sendEmojiReaction import
+  checkBotOnlyGame,
+  sendHeartbeat,
+  getEmojiReactions,
 } from "@/app/actions/multiplayer"
 
 const TURN_TIMEOUT_MS = 15000
 const GAME_START_DELAY_MS = 3000
 const POLL_INTERVAL_MS = 500
+const REMATCH_TIMEOUT_SECONDS = 30
 
 const GAME_TURN_ORDER = [0, 2, 1, 3]
 const VISUAL_COUNTER_CLOCKWISE = [0, 3, 1, 2]
@@ -49,6 +50,7 @@ export default function HideAndSeekCards() {
   const [selectedRoundsToWin, setSelectedRoundsToWin] = useState<number>(2) // Default to best of 3
   const [localSelectedTarget, setLocalSelectedTarget] = useState<string | null>(null)
   const [hasVotedRematch, setHasVotedRematch] = useState(false)
+  const [rematchCountdown, setRematchCountdown] = useState<number | null>(null)
 
   const handleLeaveGame = useCallback(async () => {
     await leaveGame(playerId)
@@ -252,6 +254,31 @@ export default function HideAndSeekCards() {
     return () => clearInterval(interval)
   }, [gameMode, currentLobby])
 
+  useEffect(() => {
+    if (phase === "series_end" && gameMode === "playing") {
+      // Start countdown when series ends
+      setRematchCountdown(REMATCH_TIMEOUT_SECONDS)
+
+      const interval = setInterval(() => {
+        setRematchCountdown((prev) => {
+          if (prev === null || prev <= 1) {
+            clearInterval(interval)
+            // Time's up - auto leave game
+            if (prev === 1) {
+              handleLeaveGame()
+            }
+            return 0
+          }
+          return prev - 1
+        })
+      }, 1000)
+
+      return () => clearInterval(interval)
+    } else {
+      setRematchCountdown(null)
+    }
+  }, [phase, gameMode])
+
   const handleGameStart = useCallback(
     async (lobby: Lobby) => {
       setCurrentLobby(lobby)
@@ -291,7 +318,7 @@ export default function HideAndSeekCards() {
       const targetToUse = localSelectedTarget || targetPlayerId
       if (!targetToUse) return
 
-      const newState = await makePickCard(playerId, cardId, targetToUse)
+      const newState = await pickCard(playerId, cardId, targetToUse)
       if (newState && isMountedRef.current && Array.isArray(newState.players) && Array.isArray(newState.cards)) {
         lastVersionRef.current = newState.version
         setSharedGameState(newState)
@@ -417,6 +444,15 @@ export default function HideAndSeekCards() {
     return (
       <div className="fixed inset-0 bg-black/95 backdrop-blur-xl z-[400] flex items-center justify-center p-4">
         <div className="bg-[#0f0a05] border-2 border-amber-800/60 p-8 sm:p-10 rounded-3xl text-center max-w-md w-full shadow-[0_0_100px_rgba(217,119,6,0.2)]">
+          {rematchCountdown !== null && rematchCountdown > 0 && (
+            <div className="absolute top-4 right-4 flex items-center gap-2">
+              <span
+                className={`font-mono text-lg font-bold ${rematchCountdown <= 10 ? "text-red-500 animate-pulse" : "text-amber-500"}`}
+              >
+                {rematchCountdown}s
+              </span>
+            </div>
+          )}
           <h2 className="font-serif text-2xl sm:text-3xl text-amber-600 mb-2 tracking-widest uppercase">
             {roundsToWin === 1 ? "Game Complete" : "Series Complete"}
           </h2>
@@ -447,9 +483,9 @@ export default function HideAndSeekCards() {
           <div className="flex flex-col gap-3">
             <button
               onClick={handleVoteRematch}
-              disabled={hasVotedRematch}
+              disabled={hasVotedRematch || rematchCountdown === 0}
               className={`relative w-full px-8 py-4 rounded-2xl font-bold transition-all font-serif tracking-widest border shadow-xl ${
-                hasVotedRematch
+                hasVotedRematch || rematchCountdown === 0
                   ? "bg-amber-900/20 text-amber-500/60 border-amber-700/30 cursor-default"
                   : "bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 border-amber-700/50"
               }`}
@@ -734,7 +770,7 @@ export default function HideAndSeekCards() {
           </div>
 
           {/* Bottom player (position 0 - local player) */}
-          <div className="absolute bottom-2 sm:bottom-4 md:bottom-6 left-1/2 -translate-x-1/2 z-30">
+          <div className="absolute bottom-0 sm:bottom-2 md:bottom-4 left-1/2 -translate-x-1/2 z-30">
             {getVisualPlayer(0) && (
               <PlayerSeat
                 player={getVisualPlayer(0)!}
