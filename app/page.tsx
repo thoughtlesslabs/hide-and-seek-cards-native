@@ -15,6 +15,7 @@ import {
   getEmojiReactions,
   checkBotOnlyGame,
   voteForRematch,
+  sendEmojiReaction, // Add sendEmojiReaction import
 } from "@/app/actions/multiplayer"
 
 const TURN_TIMEOUT_MS = 15000
@@ -365,6 +366,13 @@ export default function HideAndSeekCards() {
     return "Best of 3"
   }
 
+  const handleSendEmoji = useCallback(
+    async (emoji: string) => {
+      await sendEmojiReaction(playerId, emoji)
+    },
+    [playerId],
+  )
+
   // Round end screen
   if (phase === "round_end" && roundWinner && gameMode === "playing") {
     return (
@@ -591,8 +599,9 @@ export default function HideAndSeekCards() {
               <li>• Everyone gets a secret card - but you don&apos;t know which one is yours!</li>
               <li>• On your turn, pick someone to hunt, then flip a card</li>
               <li>• Find their card? They&apos;re out! Find your own? Oops, you&apos;re out!</li>
-              <li>• Choose your game mode: Quick (1 round), Best of 3, or Best of 5</li>
-              <li>• Win enough rounds to claim victory!</li>
+              <li>• Flip someone else&apos;s card? Turn passes</li>
+              <li>• Last player standing wins the round!</li>
+              {roundsToWin > 1 && <li>• First to {roundsToWin} round wins takes the series!</li>}
             </ul>
           </div>
 
@@ -740,6 +749,8 @@ export default function HideAndSeekCards() {
                 turnTimeRemaining={isVisualPositionActive(0) ? turnTimeRemaining : null}
                 displayedEmoji={playerReactions[getVisualPlayer(0)?.id || ""]}
                 seriesWins={sharedGameState?.players.find((p) => p.id === getVisualPlayer(0)?.id)?.seriesWins || 0}
+                isLocalPlayer={true}
+                onSendEmoji={handleSendEmoji}
               />
             )}
           </div>
