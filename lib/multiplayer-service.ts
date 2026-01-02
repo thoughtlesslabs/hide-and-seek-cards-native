@@ -10,6 +10,7 @@ const TURN_TIMEOUT_MS = 15000
 const DISCONNECT_TIMEOUT_MS = 60000
 const GAME_START_DELAY_MS = 3000
 const BOT_NAMES = ["Silas", "Morgana", "Thorne", "Valeria", "Corvus", "Nyx"]
+const BOT_AVATAR_SEEDS = ["mystic", "shadow", "ember", "frost", "storm", "void"]
 const BOT_THINKING_DELAY_MS = 2000
 const REVEAL_RESULT_DURATION_MS = 4000
 const ELIMINATION_ANIMATION_DURATION_MS = 2000
@@ -50,14 +51,38 @@ function sanitizeId(id: string): string {
   return id.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64)
 }
 
-function generateBot(): LobbyPlayer {
-  const botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)]
+function generateBot(existingPlayers: LobbyPlayer[] = []): LobbyPlayer {
+  // Get names and seeds already in use
+  const usedNames = new Set(existingPlayers.filter((p) => p.isBot).map((p) => p.username))
+  const usedSeeds = new Set(
+    existingPlayers
+      .filter((p) => p.isBot)
+      .map((p) => {
+        const match = p.avatar?.match(/seed=([^&]+)/)
+        return match ? match[1] : null
+      })
+      .filter(Boolean),
+  )
+
+  // Find an available name
+  let botName = BOT_NAMES.find((name) => !usedNames.has(name))
+  if (!botName) {
+    // Fallback if all names used (shouldn't happen with 4 max players)
+    botName = `Bot${Date.now().toString().slice(-4)}`
+  }
+
+  // Find an available seed for avatar
+  let avatarSeed = BOT_AVATAR_SEEDS.find((seed) => !usedSeeds.has(seed))
+  if (!avatarSeed) {
+    avatarSeed = `bot${Date.now()}`
+  }
+
   return {
     id: `bot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     username: botName,
     isBot: true,
     isReady: true,
-    avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${botName.toLowerCase()}`,
+    avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${avatarSeed}`,
     connectedAt: Date.now(),
     lastActivity: Date.now(),
   }
@@ -240,7 +265,7 @@ async function checkAndHandleLobbyTimer(lobby: Lobby): Promise<Lobby> {
 
   if (timerExpired && lobby.players.length > 0) {
     while (lobby.players.length < MAX_PLAYERS) {
-      lobby.players.push(generateBot())
+      lobby.players.push(generateBot(lobby.players))
     }
 
     lobby.status = "starting"

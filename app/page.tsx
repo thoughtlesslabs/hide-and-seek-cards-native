@@ -55,6 +55,17 @@ export default function HideAndSeekCards() {
       await leaveGame(currentLobby.id)
     }
     setShowLeaveModal(false)
+    // Reset all game state
+    setSharedGameState(null)
+    setCurrentLobby(null)
+    setPlayerReactions({})
+    setTurnTimeRemaining(null)
+    setGameStartCountdown(null)
+    lastVersionRef.current = 0
+    setLocalSelectedTarget(null)
+    setHasVotedRematch(false)
+    // Go back to round selection
+    setGameMode("roundSelection")
   }, [currentLobby])
 
   useEffect(() => {
@@ -304,7 +315,7 @@ export default function HideAndSeekCards() {
     lastVersionRef.current = 0
     setLocalSelectedTarget(null)
     setHasVotedRematch(false)
-    setGameMode("matchmaking")
+    setGameMode("roundSelection")
   }, [currentLobby])
 
   const handleVoteRematch = useCallback(async () => {
@@ -459,7 +470,7 @@ export default function HideAndSeekCards() {
 
             <button
               onClick={handlePlayAgain}
-              className="w-full px-8 py-4 bg-black/40 hover:bg-black/60 text-amber-200/80 text-base sm:text-lg rounded-2xl font-bold transition-all font-serif tracking-widest border border-amber-700/30 shadow-xl"
+              className="w-full px-8 py-4 bg-amber-900/20 hover:bg-amber-900/40 text-amber-200/90 text-base sm:text-lg rounded-2xl font-bold transition-all duration-200 font-serif tracking-widest border-2 border-amber-700/40 hover:border-amber-600/60 shadow-xl hover:shadow-amber-900/20 hover:scale-[1.02] active:scale-[0.98]"
             >
               Find New Game
             </button>
@@ -470,7 +481,7 @@ export default function HideAndSeekCards() {
                 href="https://buy.stripe.com/aFa5kEdUw24aecBewpbsc0b"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-block w-full px-8 py-3 bg-amber-700/30 hover:bg-amber-700/50 text-amber-200 text-sm rounded-xl font-bold transition-all font-serif tracking-widest border border-amber-600/50 shadow-lg"
+                className="inline-block w-full px-8 py-3 bg-amber-700/30 hover:bg-amber-700/50 text-amber-200 text-sm rounded-xl font-bold transition-all text-center font-serif tracking-widest border border-amber-600/50 shadow-lg hover:shadow-amber-900/20 hover:scale-[1.02] active:scale-[0.98]"
               >
                 Donate Now
               </a>
@@ -606,7 +617,7 @@ export default function HideAndSeekCards() {
                 href="https://buy.stripe.com/aFa5kEdUw24aecBewpbsc0b"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-block w-full px-6 py-3 bg-amber-700/30 hover:bg-amber-700/50 text-amber-200 text-sm rounded-xl font-bold transition-all text-center font-serif tracking-widest border border-amber-600/50 shadow-lg"
+                className="inline-block w-full px-6 py-3 bg-amber-700/30 hover:bg-amber-700/50 text-amber-200 text-sm rounded-xl font-bold transition-all text-center font-serif tracking-widest border border-amber-600/50 shadow-lg hover:shadow-amber-900/20 hover:scale-[1.02] active:scale-[0.98]"
               >
                 Donate Now
               </a>
@@ -800,13 +811,13 @@ export default function HideAndSeekCards() {
             <div className="flex gap-3">
               <button
                 onClick={() => setShowLeaveModal(false)}
-                className="flex-1 bg-black/40 hover:bg-black/60 text-amber-200/80 py-3 rounded-xl font-bold font-serif tracking-wide border border-amber-900/30"
+                className="flex-1 bg-black/40 hover:bg-black/60 text-amber-200/80 py-3 rounded-xl font-bold font-serif tracking-widest border border-amber-900/30"
               >
                 Stay
               </button>
               <button
                 onClick={handleLeaveGame}
-                className="flex-1 bg-red-900/40 hover:bg-red-800/60 text-red-200 py-3 rounded-xl font-bold font-serif tracking-wide border border-red-700/50"
+                className="flex-1 bg-red-900/40 hover:bg-red-800/60 text-red-200 py-3 rounded-xl font-bold font-serif tracking-widest border border-red-700/50"
               >
                 Leave
               </button>
