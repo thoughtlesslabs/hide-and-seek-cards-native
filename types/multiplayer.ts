@@ -16,6 +16,8 @@ export interface Lobby {
   startTimer: number | null
   maxPlayers: number
   reactions?: Record<string, { emoji: string; timestamp: number }>
+  isPrivate?: boolean
+  roomCode?: string
 }
 
 export interface EmojiReaction {
@@ -57,6 +59,8 @@ export interface SharedGameState {
     | "flipping"
     | "elimination_animation"
     | "game_over"
+    | "round_end" // Added round_end phase for best-of-3
+    | "series_end" // Added series_end phase when someone wins 2 rounds
   lastMessage: string
   winner?: string | null
   winnerId: string | null
@@ -69,4 +73,8 @@ export interface SharedGameState {
   revealResultTime: number | null
   flippingStartTime: number | null
   eliminationAnimationTime: number | null
+  seriesWins: number[] // Wins per player index (matches players array)
+  roundWinnerId: string | null // Winner of current round
+  roundEndTime: number | null // When round ended for countdown
+  rematchVotes: string[] // Player IDs who voted for rematch
 }

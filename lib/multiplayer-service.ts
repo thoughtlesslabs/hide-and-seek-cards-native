@@ -14,6 +14,8 @@ const BOT_THINKING_DELAY_MS = 2000
 const REVEAL_RESULT_DURATION_MS = 4000
 const ELIMINATION_ANIMATION_DURATION_MS = 2000
 const FLIP_ANIMATION_DURATION_MS = 800
+const ROUND_END_DURATION_MS = 3000 // Time to show round winner before next round
+const WINS_TO_WIN_SERIES = 2 // Best of 3
 
 const COUNTER_CLOCKWISE_ORDER = [0, 2, 1, 3]
 
@@ -40,6 +42,7 @@ const REDIS_KEYS = {
   WAITING_LOBBIES: "lobbies:waiting",
   PLAYER_ACTIVITY: (id: string) => `player:activity:${id}`,
   REACTIONS: (lobbyId: string) => `reactions:${lobbyId}`,
+  PRIVATE_LOBBY: (code: string) => `private:lobby:${code}`, // Private lobby by room code
 }
 
 function isValidId(id: string): boolean {
@@ -48,6 +51,15 @@ function isValidId(id: string): boolean {
 
 function sanitizeId(id: string): string {
   return id.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64)
+}
+
+function generateRoomCode(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ" // Excluding I and O to avoid confusion
+  let code = ""
+  for (let i = 0; i < 4; i++) {
+    code += chars[Math.floor(Math.random() * chars.length)]
+  }
+  return code
 }
 
 function generateBot(): LobbyPlayer {
@@ -83,6 +95,10 @@ async function saveLobby(lobby: Lobby): Promise<void> {
     reactions: JSON.stringify(lobby.reactions),
   }
   await redis.set(REDIS_KEYS.LOBBY(lobby.id), JSON.stringify(lobbyData), { ex: REDIS_TTL.LOBBY })
+
+  if (lobby.isPrivate && lobby.roomCode) {
+    await redis.set(REDIS_KEYS.PRIVATE_LOBBY(lobby.roomCode), lobby.id, { ex: REDIS_TTL.LOBBY })
+  }
 }
 
 async function getLobbyById(lobbyId: string): Promise<Lobby | null> {
@@ -103,6 +119,13 @@ async function getLobbyById(lobbyId: string): Promise<Lobby | null> {
   } catch {
     return null
   }
+}
+
+async function getLobbyByRoomCode(roomCode: string): Promise<Lobby | null> {
+  const upperCode = roomCode.toUpperCase()
+  const lobbyId = await redis.get(REDIS_KEYS.PRIVATE_LOBBY(upperCode))
+  if (!lobbyId) return null
+  return await getLobbyById(lobbyId as string)
 }
 
 async function getPlayerLobbyId(playerId: string): Promise<string | null> {
@@ -139,6 +162,8 @@ async function saveGameState(state: SharedGameState): Promise<void> {
     ...state,
     players: JSON.stringify(state.players),
     cards: JSON.stringify(state.cards),
+    seriesWins: JSON.stringify(state.seriesWins), // Serialize seriesWins
+    rematchVotes: JSON.stringify(state.rematchVotes), // Serialize rematchVotes
   }
   await redis.set(REDIS_KEYS.GAME_STATE(state.lobbyId), JSON.stringify(stateData), { ex: REDIS_TTL.GAME })
 }
@@ -152,11 +177,17 @@ async function getGameState(lobbyId: string): Promise<SharedGameState | null> {
     const parsed = typeof data === "string" ? JSON.parse(data) : data
     const players = typeof parsed.players === "string" ? JSON.parse(parsed.players) : parsed.players
     const cards = typeof parsed.cards === "string" ? JSON.parse(parsed.cards) : parsed.cards
+    const seriesWins =
+      typeof parsed.seriesWins === "string" ? JSON.parse(parsed.seriesWins) : parsed.seriesWins || [0, 0, 0, 0]
+    const rematchVotes =
+      typeof parsed.rematchVotes === "string" ? JSON.parse(parsed.rematchVotes) : parsed.rematchVotes || []
 
     return {
       ...parsed,
       players: Array.isArray(players) ? players : [],
       cards: Array.isArray(cards) ? cards : [],
+      seriesWins: Array.isArray(seriesWins) ? seriesWins : [0, 0, 0, 0],
+      rematchVotes: Array.isArray(rematchVotes) ? rematchVotes : [],
     }
   } catch {
     return null
@@ -171,6 +202,11 @@ async function cleanupGameResources(lobbyId: string, playerIds: string[]): Promi
     ...playerIds.map((id) => REDIS_KEYS.PLAYER_ACTIVITY(id)),
   ]
 
+  const lobby = await getLobbyById(lobbyId)
+  if (lobby?.roomCode) {
+    keysToDelete.push(REDIS_KEYS.PRIVATE_LOBBY(lobby.roomCode))
+  }
+
   const batchSize = 10
   for (let i = 0; i < keysToDelete.length; i += batchSize) {
     const batch = keysToDelete.slice(i, i + batchSize)
@@ -180,7 +216,7 @@ async function cleanupGameResources(lobbyId: string, playerIds: string[]): Promi
   await redis.zrem(REDIS_KEYS.WAITING_LOBBIES, lobbyId)
 }
 
-async function initializeGame(lobby: Lobby): Promise<SharedGameState> {
+async function initializeRound(lobby: Lobby, existingSeriesWins?: number[]): Promise<SharedGameState> {
   const players: SharedPlayer[] = lobby.players.map((p, idx) => ({
     id: p.id,
     name: p.username,
@@ -219,10 +255,18 @@ async function initializeGame(lobby: Lobby): Promise<SharedGameState> {
     revealResultTime: null,
     eliminationAnimationTime: null,
     flippingStartTime: null,
+    seriesWins: existingSeriesWins || [0, 0, 0, 0], // Keep existing series wins or start fresh
+    roundWinnerId: null,
+    roundEndTime: null,
+    rematchVotes: [],
   }
 
   await saveGameState(state)
   return state
+}
+
+async function initializeGame(lobby: Lobby): Promise<SharedGameState> {
+  return initializeRound(lobby)
 }
 
 async function checkAndHandleLobbyTimer(lobby: Lobby): Promise<Lobby> {
@@ -259,7 +303,8 @@ export async function joinQueue(playerId: string): Promise<LobbyPlayer> {
     const existingLobby = await getLobbyById(existingLobbyId)
     if (existingLobby) {
       const gameState = await getGameState(existingLobby.id)
-      const gameIsFinished = gameState?.phase === "game_over" || existingLobby.status === "finished"
+      const gameIsFinished =
+        gameState?.phase === "game_over" || gameState?.phase === "series_end" || existingLobby.status === "finished"
 
       if (!gameIsFinished) {
         const existingPlayer = existingLobby.players.find((p) => p.id === sanitizedId)
@@ -267,7 +312,6 @@ export async function joinQueue(playerId: string): Promise<LobbyPlayer> {
           return existingPlayer
         }
       }
-      // Other players in that game might still be playing
       await redis.del(REDIS_KEYS.PLAYER_LOBBY(sanitizedId))
     }
     await removePlayerLobby(sanitizedId)
@@ -286,7 +330,7 @@ export async function joinQueue(playerId: string): Promise<LobbyPlayer> {
 
   for (const lobbyId of waitingLobbyIds) {
     const lobby = await getLobbyById(lobbyId as string)
-    if (lobby && lobby.status === "waiting" && lobby.players.length < MAX_PLAYERS) {
+    if (lobby && lobby.status === "waiting" && lobby.players.length < MAX_PLAYERS && !lobby.isPrivate) {
       const alreadyInLobby = lobby.players.some((p) => p.id === sanitizedId)
       if (alreadyInLobby) continue
 
@@ -325,6 +369,119 @@ export async function joinQueue(playerId: string): Promise<LobbyPlayer> {
   return player
 }
 
+export async function createPrivateLobby(playerId: string): Promise<{ player: LobbyPlayer; roomCode: string }> {
+  const sanitizedId = sanitizeId(playerId)
+  if (!sanitizedId) {
+    throw new Error("Invalid player ID")
+  }
+
+  // Clean up any existing lobby
+  const existingLobbyId = await getPlayerLobbyId(sanitizedId)
+  if (existingLobbyId) {
+    await removePlayerLobby(sanitizedId)
+  }
+
+  let player = await getPlayerInfo(sanitizedId)
+  if (!player) {
+    player = createPlayer(sanitizedId)
+    await savePlayerInfo(player)
+  } else {
+    player.lastActivity = Date.now()
+    await savePlayerInfo(player)
+  }
+
+  // Generate unique room code
+  let roomCode = generateRoomCode()
+  let attempts = 0
+  while ((await redis.exists(REDIS_KEYS.PRIVATE_LOBBY(roomCode))) && attempts < 10) {
+    roomCode = generateRoomCode()
+    attempts++
+  }
+
+  const lobbyId = `private-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+
+  const newLobby: Lobby = {
+    id: lobbyId,
+    players: [player],
+    status: "waiting",
+    createdAt: Date.now(),
+    startTimer: null, // Private games don't auto-start
+    maxPlayers: MAX_PLAYERS,
+    reactions: {},
+    isPrivate: true,
+    roomCode: roomCode,
+  }
+
+  await saveLobby(newLobby)
+  await setPlayerLobby(sanitizedId, lobbyId)
+
+  return { player, roomCode }
+}
+
+export async function joinPrivateLobby(playerId: string, roomCode: string): Promise<LobbyPlayer | null> {
+  const sanitizedId = sanitizeId(playerId)
+  if (!sanitizedId) {
+    throw new Error("Invalid player ID")
+  }
+
+  const lobby = await getLobbyByRoomCode(roomCode)
+  if (!lobby) return null
+  if (lobby.status !== "waiting") return null
+  if (lobby.players.length >= MAX_PLAYERS) return null
+
+  // Check if already in this lobby
+  const existingPlayer = lobby.players.find((p) => p.id === sanitizedId)
+  if (existingPlayer) return existingPlayer
+
+  // Clean up any existing lobby
+  const existingLobbyId = await getPlayerLobbyId(sanitizedId)
+  if (existingLobbyId && existingLobbyId !== lobby.id) {
+    await removePlayerLobby(sanitizedId)
+  }
+
+  let player = await getPlayerInfo(sanitizedId)
+  if (!player) {
+    player = createPlayer(sanitizedId)
+    await savePlayerInfo(player)
+  } else {
+    player.lastActivity = Date.now()
+    await savePlayerInfo(player)
+  }
+
+  lobby.players.push(player)
+  await setPlayerLobby(sanitizedId, lobby.id)
+  await saveLobby(lobby)
+
+  return player
+}
+
+export async function startPrivateGame(playerId: string): Promise<boolean> {
+  const sanitizedId = sanitizeId(playerId)
+  if (!sanitizedId) return false
+
+  const lobbyId = await getPlayerLobbyId(sanitizedId)
+  if (!lobbyId) return false
+
+  const lobby = await getLobbyById(lobbyId)
+  if (!lobby || !lobby.isPrivate || lobby.status !== "waiting") return false
+
+  // Only the host (first player) can start
+  if (lobby.players[0]?.id !== sanitizedId) return false
+
+  // Fill remaining slots with bots
+  while (lobby.players.length < MAX_PLAYERS) {
+    lobby.players.push(generateBot())
+  }
+
+  lobby.status = "starting"
+  lobby.startTimer = null
+  await initializeGame(lobby)
+  lobby.status = "in-progress"
+  await saveLobby(lobby)
+
+  return true
+}
+
 export async function getLobby(playerId: string): Promise<Lobby | null> {
   const sanitizedId = sanitizeId(playerId)
   if (!sanitizedId) return null
@@ -357,15 +514,19 @@ export async function leaveLobby(playerId: string): Promise<void> {
 
   if (lobby.status === "waiting") {
     lobby.players = lobby.players.filter((p) => p.id !== sanitizedId)
-    await removePlayerLobby(sanitizedId)
 
     if (lobby.players.length === 0) {
-      await redis.del(REDIS_KEYS.LOBBY(lobbyId))
-      await redis.zrem(REDIS_KEYS.WAITING_LOBBIES, lobbyId)
+      await redis.del(REDIS_KEYS.LOBBY(lobby.id))
+      await redis.zrem(REDIS_KEYS.WAITING_LOBBIES, lobby.id)
+      if (lobby.roomCode) {
+        await redis.del(REDIS_KEYS.PRIVATE_LOBBY(lobby.roomCode))
+      }
     } else {
       await saveLobby(lobby)
     }
   }
+
+  await removePlayerLobby(sanitizedId)
 }
 
 export async function addReaction(playerId: string, emoji: string): Promise<void> {
@@ -375,15 +536,17 @@ export async function addReaction(playerId: string, emoji: string): Promise<void
   const lobbyId = await getPlayerLobbyId(sanitizedId)
   if (!lobbyId) return
 
-  const allowedEmojis = ["👍", "😄", "😮", "😢", "😡", "👏", "🎉", "🤔"]
-  if (!allowedEmojis.includes(emoji)) return
-
   const lobby = await getLobbyById(lobbyId)
   if (!lobby) return
 
-  const reactions = lobby.reactions || {}
-  reactions[sanitizedId] = { emoji, timestamp: Date.now() }
-  lobby.reactions = reactions
+  if (!lobby.reactions) {
+    lobby.reactions = {}
+  }
+
+  lobby.reactions[sanitizedId] = {
+    emoji,
+    timestamp: Date.now(),
+  }
 
   await saveLobby(lobby)
 }
@@ -395,29 +558,22 @@ export async function getReactions(lobbyId: string): Promise<Record<string, stri
   if (!lobby || !lobby.reactions) return {}
 
   const now = Date.now()
-  const validReactions: Record<string, string> = {}
-  let hasExpired = false
+  const result: Record<string, string> = {}
 
-  for (const [pId, data] of Object.entries(lobby.reactions)) {
-    const age = now - data.timestamp
+  for (const [playerId, reaction] of Object.entries(lobby.reactions)) {
+    const age = now - reaction.timestamp
     if (age < 5000) {
-      validReactions[pId] = data.emoji
-    } else {
-      hasExpired = true
-      delete lobby.reactions[pId]
+      result[playerId] = reaction.emoji
     }
   }
 
-  if (hasExpired) {
-    await saveLobby(lobby)
-  }
-
-  return validReactions
+  return result
 }
 
 export async function updatePlayerActivity(playerId: string): Promise<void> {
   const sanitizedId = sanitizeId(playerId)
   if (!sanitizedId) return
+
   await redis.set(REDIS_KEYS.PLAYER_ACTIVITY(sanitizedId), Date.now().toString(), { ex: REDIS_TTL.ACTIVITY })
 }
 
@@ -427,35 +583,55 @@ export async function checkDisconnectedPlayers(lobbyId: string): Promise<string[
   const state = await getGameState(lobbyId)
   if (!state) return []
 
-  // Only check during active turn phases
-  if (state.phase !== "select_target" && state.phase !== "select_card") {
+  if (state.phase !== "select_target" && state.phase !== "select_card" && state.phase !== "waiting") {
     return []
   }
 
-  const disconnected: string[] = []
-  const now = Date.now()
-
-  // Only check the current player, not all players
   const currentPlayer = state.players[state.currentPlayerIndex]
   if (!currentPlayer || !currentPlayer.isHuman || currentPlayer.isEliminated) {
     return []
   }
 
   const lastActivity = await redis.get(REDIS_KEYS.PLAYER_ACTIVITY(currentPlayer.id))
-  const activityTime = lastActivity ? Number.parseInt(lastActivity as string) : 0
+  if (!lastActivity) return []
 
-  // Only convert to bot if they've been inactive AND their turn has timed out
-  const turnElapsed = now - (state.turnStartTime || now)
-  if (now - activityTime > DISCONNECT_TIMEOUT_MS && turnElapsed > TURN_TIMEOUT_MS) {
-    currentPlayer.isHuman = false
-    currentPlayer.name = `${currentPlayer.name} (Bot)`
-    disconnected.push(currentPlayer.id)
+  const now = Date.now()
+  const activityTime = Number.parseInt(lastActivity as string, 10)
+  const timeSinceActivity = now - activityTime
 
-    state.version++
-    await saveGameState(state)
+  const turnElapsed = state.turnStartTime ? now - state.turnStartTime : 0
+  const turnTimedOut = turnElapsed >= TURN_TIMEOUT_MS
+
+  if (timeSinceActivity > DISCONNECT_TIMEOUT_MS && turnTimedOut) {
+    await replaceWithBot(state, currentPlayer.id)
+    return [currentPlayer.id]
   }
 
-  return disconnected
+  return []
+}
+
+async function replaceWithBot(state: SharedGameState, playerId: string): Promise<void> {
+  const playerIndex = state.players.findIndex((p) => p.id === playerId)
+  if (playerIndex === -1) return
+
+  const player = state.players[playerIndex]
+  const botId = `bot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+
+  state.players[playerIndex] = {
+    ...player,
+    id: botId,
+    isHuman: false,
+  }
+
+  state.cards = state.cards.map((c) => (c.ownerId === playerId ? { ...c, ownerId: botId } : c))
+
+  if (state.targetPlayerId === playerId) {
+    state.targetPlayerId = botId
+  }
+
+  state.version++
+  await saveGameState(state)
+  await removePlayerLobby(playerId)
 }
 
 export async function leaveGame(playerId: string): Promise<void> {
@@ -466,53 +642,55 @@ export async function leaveGame(playerId: string): Promise<void> {
   if (!lobbyId) return
 
   const state = await getGameState(lobbyId)
-  if (!state) return
-
-  const player = state.players.find((p) => p.id === sanitizedId)
-  if (player && !player.isEliminated) {
-    player.isHuman = false
-    player.name = `${player.name} (Bot)`
-    state.version++
-    await saveGameState(state)
+  if (!state) {
+    await removePlayerLobby(sanitizedId)
+    return
   }
 
-  await removePlayerLobby(sanitizedId)
-  await redis.del(REDIS_KEYS.PLAYER_ACTIVITY(sanitizedId))
+  await replaceWithBot(state, sanitizedId)
 }
 
 export async function finishGame(lobbyId: string): Promise<void> {
   if (!isValidId(lobbyId)) return
 
   const state = await getGameState(lobbyId)
-  const playerIds = state?.players.map((p) => p.id).filter((id) => !id.startsWith("bot-")) || []
+  if (!state) return
 
+  const playerIds = state.players.map((p) => p.id).filter((id) => !id.startsWith("bot-"))
   await cleanupGameResources(lobbyId, playerIds)
 }
 
-export async function checkAndTerminateBotOnlyGame(lobbyId: string): Promise<boolean> {
-  if (!isValidId(lobbyId)) return false
+export async function voteRematch(playerId: string): Promise<SharedGameState | null> {
+  const sanitizedId = sanitizeId(playerId)
+  if (!sanitizedId) return null
+
+  const lobbyId = await getPlayerLobbyId(sanitizedId)
+  if (!lobbyId) return null
 
   const state = await getGameState(lobbyId)
-  if (!state) return false
+  if (!state || state.phase !== "series_end") return state
 
-  if (
-    state.phase === "game_over" ||
-    state.phase === "reveal_result" ||
-    state.phase === "elimination_animation" ||
-    state.pendingEliminationId
-  ) {
-    return false
+  // Add vote if not already voted
+  if (!state.rematchVotes.includes(sanitizedId)) {
+    state.rematchVotes.push(sanitizedId)
+    state.version++
+    await saveGameState(state)
   }
 
-  const hasAnyHumanPlayers = state.players.some((p) => p.isHuman)
+  // Check if all human players voted
+  const humanPlayers = state.players.filter((p) => p.isHuman)
+  const allVoted = humanPlayers.every((p) => state.rematchVotes.includes(p.id))
 
-  if (!hasAnyHumanPlayers) {
-    const playerIds = state.players.map((p) => p.id).filter((id) => !id.startsWith("bot-"))
-    await cleanupGameResources(lobbyId, playerIds)
-    return true
+  if (allVoted && humanPlayers.length > 0) {
+    // Start new series with same players
+    const lobby = await getLobbyById(lobbyId)
+    if (lobby) {
+      const newState = await initializeRound(lobby) // Fresh series
+      return newState
+    }
   }
 
-  return false
+  return state
 }
 
 export async function getSharedGameState(playerId: string): Promise<SharedGameState | null> {
@@ -525,14 +703,31 @@ export async function getSharedGameState(playerId: string): Promise<SharedGameSt
   const state = await getGameState(lobbyId)
   if (!state) return null
 
-  const processedState = await processGameTick(state)
-  return processedState
+  return await processGameTick(state)
 }
 
 async function processGameTick(state: SharedGameState): Promise<SharedGameState> {
   const now = Date.now()
 
-  // Handle waiting phase countdown
+  // Handle game_over -> This now means round over, not series over
+  if (state.phase === "game_over") {
+    return state
+  }
+
+  if (state.phase === "round_end" && state.roundEndTime) {
+    const elapsed = now - state.roundEndTime
+    if (elapsed >= ROUND_END_DURATION_MS) {
+      return await processAfterRoundEnd(state)
+    }
+    return state
+  }
+
+  // Handle series_end - waiting for rematch votes
+  if (state.phase === "series_end") {
+    return state
+  }
+
+  // Handle waiting phase (countdown before game starts)
   if (state.phase === "waiting" && state.gameStartTime) {
     const elapsed = now - state.gameStartTime
     if (elapsed >= GAME_START_DELAY_MS) {
@@ -546,7 +741,7 @@ async function processGameTick(state: SharedGameState): Promise<SharedGameState>
     return state
   }
 
-  // Handle reveal result phase
+  // Handle reveal_result phase
   if (state.phase === "reveal_result" && state.revealResultTime) {
     const elapsed = now - state.revealResultTime
     if (elapsed >= REVEAL_RESULT_DURATION_MS) {
@@ -555,6 +750,7 @@ async function processGameTick(state: SharedGameState): Promise<SharedGameState>
     return state
   }
 
+  // Handle flipping phase
   if (state.phase === "flipping" && state.flippingStartTime) {
     const elapsed = now - state.flippingStartTime
     if (elapsed >= FLIP_ANIMATION_DURATION_MS) {
@@ -585,41 +781,33 @@ async function processGameTick(state: SharedGameState): Promise<SharedGameState>
   }
 
   if (!currentPlayer.isHuman) {
-    if (state.turnStartTime) {
-      const elapsed = now - state.turnStartTime
-      if (elapsed >= BOT_THINKING_DELAY_MS) {
-        return await processBotTurnImmediate(state)
-      }
+    const botThinkingTime = state.turnStartTime ? now - state.turnStartTime : 0
+    if (botThinkingTime >= BOT_THINKING_DELAY_MS) {
+      return await processBotTurnImmediate(state)
     }
-    return state
   }
 
   return state
 }
 
 async function processAfterReveal(state: SharedGameState): Promise<SharedGameState> {
-  // Flip cards back first
+  // Flip all cards face down first
   state.cards = state.cards.map((c) => ({ ...c, isRevealed: false }))
 
   if (state.pendingEliminationId) {
-    const playerIndex = state.players.findIndex((p) => p.id === state.pendingEliminationId)
-    if (playerIndex !== -1) {
-      state.players[playerIndex].isEliminated = true
-    }
-
     const eliminatedPlayer = state.players.find((p) => p.id === state.pendingEliminationId)
     if (eliminatedPlayer) {
-      state.cards = state.cards.filter((c) => c.ownerId !== eliminatedPlayer.id)
+      eliminatedPlayer.isEliminated = true
     }
-
     state.phase = "elimination_animation"
     state.eliminationAnimationTime = Date.now()
     state.revealResultTime = null
   } else {
-    // No elimination - go to flipping phase, shuffle happens after
+    // Go to flipping phase before shuffle
     state.phase = "flipping"
     state.flippingStartTime = Date.now()
     state.revealResultTime = null
+    state.pendingEliminationId = null
   }
 
   state.version++
@@ -629,17 +817,12 @@ async function processAfterReveal(state: SharedGameState): Promise<SharedGameSta
 
 async function processAfterFlipping(state: SharedGameState): Promise<SharedGameState> {
   // Shuffle cards
-  for (let i = state.cards.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[state.cards[i], state.cards[j]] = [state.cards[j], state.cards[i]]
-  }
-  state.cards = state.cards.map((c, idx) => ({ ...c, position: idx }))
+  state.cards = state.cards.sort(() => Math.random() - 0.5).map((c, idx) => ({ ...c, position: idx }))
 
   // Move to next player
-  const currentIndex = state.currentPlayerIndex
-  let nextIndex = getNextClockwiseIndex(currentIndex)
+  let nextIndex = getNextClockwiseIndex(state.currentPlayerIndex)
   let attempts = 0
-  while (state.players[nextIndex]?.isEliminated && attempts < state.players.length) {
+  while (state.players[nextIndex]?.isEliminated && attempts < 4) {
     nextIndex = getNextClockwiseIndex(nextIndex)
     attempts++
   }
@@ -649,7 +832,6 @@ async function processAfterFlipping(state: SharedGameState): Promise<SharedGameS
   state.phase = "select_target"
   state.turnStartTime = Date.now()
   state.flippingStartTime = null
-
   const nextPlayer = state.players[nextIndex]
   state.lastMessage = `${nextPlayer?.name}'s turn to choose a target...`
 
@@ -663,10 +845,28 @@ async function processAfterElimination(state: SharedGameState): Promise<SharedGa
 
   if (activePlayers.length <= 1) {
     const winner = activePlayers[0]
-    state.phase = "game_over"
-    state.winner = winner?.name || "No one"
-    state.winnerId = winner?.id || null
-    state.lastMessage = winner ? `${winner.name} is the last one standing!` : "No survivors..."
+    const winnerIndex = state.players.findIndex((p) => p.id === winner?.id)
+
+    if (winnerIndex !== -1) {
+      state.seriesWins[winnerIndex]++
+    }
+
+    state.roundWinnerId = winner?.id || null
+    state.roundEndTime = Date.now()
+
+    // Check if someone won the series (best of 3)
+    const hasSeriesWinner = state.seriesWins.some((wins) => wins >= WINS_TO_WIN_SERIES)
+
+    if (hasSeriesWinner) {
+      state.phase = "series_end"
+      state.winner = winner?.name || "No one"
+      state.winnerId = winner?.id || null
+      state.lastMessage = `${winner?.name} wins the series!`
+    } else {
+      state.phase = "round_end"
+      state.lastMessage = `${winner?.name} wins this round!`
+    }
+
     state.pendingEliminationId = null
     state.eliminationAnimationTime = null
     state.version++
@@ -680,13 +880,29 @@ async function processAfterElimination(state: SharedGameState): Promise<SharedGa
   state.pendingEliminationId = null
   state.eliminationAnimationTime = null
 
+  // Remove eliminated player's card
+  const eliminatedPlayer = state.players.find((p) => p.isEliminated && state.cards.some((c) => c.ownerId === p.id))
+  if (eliminatedPlayer) {
+    state.cards = state.cards.filter((c) => c.ownerId !== eliminatedPlayer.id)
+  }
+
   state.version++
   await saveGameState(state)
   return state
 }
 
+async function processAfterRoundEnd(state: SharedGameState): Promise<SharedGameState> {
+  const lobby = await getLobbyById(state.lobbyId)
+  if (!lobby) return state
+
+  // Reset players for new round but keep series wins
+  const newState = await initializeRound(lobby, state.seriesWins)
+  return newState
+}
+
 async function handleTurnTimeout(state: SharedGameState): Promise<SharedGameState> {
   const currentPlayer = state.players[state.currentPlayerIndex]
+  if (!currentPlayer) return state
 
   if (state.phase === "select_target") {
     const validTargets = state.players.filter((p) => !p.isEliminated && p.id !== currentPlayer.id)
@@ -694,7 +910,7 @@ async function handleTurnTimeout(state: SharedGameState): Promise<SharedGameStat
       const target = validTargets[Math.floor(Math.random() * validTargets.length)]
       state.targetPlayerId = target.id
       state.phase = "select_card"
-      state.lastMessage = `Time's up! ${currentPlayer.name} auto-targets ${target.name}.`
+      state.lastMessage = `${currentPlayer.name} randomly targets ${target.name}!`
       state.turnStartTime = Date.now()
       state.version++
       await saveGameState(state)
@@ -846,6 +1062,34 @@ export async function checkTurnTimeout(lobbyId: string): Promise<SharedGameState
   return state
 }
 
+export async function checkAndTerminateBotOnlyGame(lobbyId: string): Promise<boolean> {
+  if (!isValidId(lobbyId)) return false
+
+  const state = await getGameState(lobbyId)
+  if (!state) return false
+
+  if (
+    state.phase === "game_over" ||
+    state.phase === "series_end" || // Also check series_end
+    state.phase === "round_end" ||
+    state.phase === "reveal_result" ||
+    state.phase === "elimination_animation" ||
+    state.pendingEliminationId
+  ) {
+    return false
+  }
+
+  const hasAnyHumanPlayers = state.players.some((p) => p.isHuman)
+
+  if (!hasAnyHumanPlayers) {
+    const playerIds = state.players.map((p) => p.id).filter((id) => !id.startsWith("bot-"))
+    await cleanupGameResources(lobbyId, playerIds)
+    return true
+  }
+
+  return false
+}
+
 export const multiplayerService = {
   joinQueue,
   getLobby,
@@ -861,4 +1105,9 @@ export const multiplayerService = {
   pickCard,
   checkTurnTimeout,
   checkAndTerminateBotOnlyGame,
+  createPrivateLobby, // New export
+  joinPrivateLobby, // New export
+  startPrivateGame, // New export
+  voteRematch, // New export
+  getLobbyByRoomCode, // New export
 }
