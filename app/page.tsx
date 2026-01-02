@@ -275,6 +275,12 @@ export default function HideAndSeekCards() {
     }
   }, [phase, gameMode])
 
+  useEffect(() => {
+    if (phase === "select_target") {
+      setHasVotedRematch(false)
+    }
+  }, [phase])
+
   const handleGameStart = useCallback(
     async (lobby: Lobby) => {
       setCurrentLobby(lobby)

@@ -159,7 +159,7 @@ export default function PlayerSeat({
         </span>
       </div>
 
-      {isLocalPlayer && !player.isEliminated && (
+      {isLocalPlayer && (
         <button
           onClick={(e) => {
             e.stopPropagation()

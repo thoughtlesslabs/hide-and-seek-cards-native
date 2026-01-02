@@ -964,6 +964,7 @@ async function startNextRound(state: SharedGameState): Promise<SharedGameState> 
   state.roundWinnerId = null
   state.seriesWinnerId = null
   state.winner = null
+  state.rematchVotes = []
   state.lastMessage = `Round ${state.currentRound} - ${state.players[startingPlayerIndex]?.name}'s turn...`
 
   state.version++
