@@ -216,7 +216,7 @@ export async function initializeGame(lobby: Lobby): Promise<SharedGameState> {
     isEliminated: false,
     cardValue: idx,
     avatar: p.avatar,
-    seriesWins: 0, // Initialize series wins to 0
+    seriesWins: 0,
   }))
 
   const cards: SharedCard[] = players.map((p, idx) => ({
@@ -235,14 +235,14 @@ export async function initializeGame(lobby: Lobby): Promise<SharedGameState> {
     cards: shuffledCards,
     currentPlayerIndex: startingPlayerIndex,
     targetPlayerId: null,
-    phase: "waiting",
-    lastMessage: "Welcome to Hide and Seek Cards!",
+    phase: "dealing",
+    lastMessage: "Dealing cards...",
     winnerId: null,
     turnStartTime: null,
     lastMoveBy: null,
     lastMoveTime: null,
     version: 1,
-    gameStartTime: null,
+    gameStartTime: Date.now(),
     pendingEliminationId: null,
     revealResultTime: null,
     flippingStartTime: null,
@@ -253,7 +253,7 @@ export async function initializeGame(lobby: Lobby): Promise<SharedGameState> {
     seriesWinnerId: null,
     rematchVotes: [],
     roundsToWin: lobby.roundsToWin || 2,
-    dealingStartTime: null,
+    dealingStartTime: Date.now(),
     shufflingStartTime: null,
   }
   await saveGameState(state)
@@ -576,19 +576,7 @@ export async function getSharedGameState(playerId: string): Promise<SharedGameSt
 async function processGameTick(state: SharedGameState): Promise<SharedGameState> {
   const now = Date.now()
 
-  // Handle waiting phase countdown
-  if (state.phase === "waiting" && state.gameStartTime) {
-    const elapsed = now - state.gameStartTime
-    if (elapsed >= GAME_START_DELAY_MS) {
-      state.phase = "dealing"
-      state.dealingStartTime = now
-      state.lastMessage = "Dealing cards..."
-      state.version++
-      await saveGameState(state)
-    }
-    return state
-  }
-
+  // Handle dealing phase countdown
   if (state.phase === "dealing" && state.dealingStartTime) {
     const elapsed = now - state.dealingStartTime
     if (elapsed >= DEALING_ANIMATION_DURATION_MS) {
