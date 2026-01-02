@@ -811,9 +811,6 @@ export default function HideAndSeekCards() {
                     }
                     onFlip={() => handlePickCard(card.id)}
                     playerAvatar={cardOwner?.avatar}
-                    isDealing={phase === "dealing"}
-                    dealIndex={index}
-                    isShuffling={phase === "shuffling"}
                   />
                 )
               })}

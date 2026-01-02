@@ -1,7 +1,6 @@
 "use client"
 
 import type { Card } from "@/types/game"
-import { useEffect, useState } from "react"
 
 interface CardComponentProps {
   card: Card
@@ -9,59 +8,9 @@ interface CardComponentProps {
   canFlip: boolean
   onFlip: () => void
   playerAvatar?: string
-  isDealing?: boolean
-  dealIndex?: number
-  isShuffling?: boolean
 }
 
-export default function CardComponent({
-  card,
-  totalCards,
-  canFlip,
-  onFlip,
-  playerAvatar,
-  isDealing = false,
-  dealIndex = 0,
-  isShuffling = false,
-}: CardComponentProps) {
-  const [hasDealt, setHasDealt] = useState(!isDealing)
-  const [shuffleOffset, setShuffleOffset] = useState({ x: 0, y: 0, rotation: 0 })
-
-  useEffect(() => {
-    if (isDealing) {
-      setHasDealt(false)
-      const timer = setTimeout(
-        () => {
-          setHasDealt(true)
-        },
-        dealIndex * 200 + 100,
-      ) // Stagger each card by 200ms
-      return () => clearTimeout(timer)
-    } else {
-      setHasDealt(true)
-    }
-  }, [isDealing, dealIndex])
-
-  useEffect(() => {
-    if (isShuffling) {
-      // Start with random offset
-      setShuffleOffset({
-        x: (Math.random() - 0.5) * 100,
-        y: (Math.random() - 0.5) * 60,
-        rotation: (Math.random() - 0.5) * 30,
-      })
-
-      // Animate back to center
-      const timer = setTimeout(() => {
-        setShuffleOffset({ x: 0, y: 0, rotation: 0 })
-      }, 100)
-
-      return () => clearTimeout(timer)
-    } else {
-      setShuffleOffset({ x: 0, y: 0, rotation: 0 })
-    }
-  }, [isShuffling])
-
+export default function CardComponent({ card, canFlip, onFlip, playerAvatar }: CardComponentProps) {
   return (
     <button
       onClick={() => canFlip && !card.isRevealed && onFlip()}
@@ -72,14 +21,9 @@ export default function CardComponent({
         rounded-lg sm:rounded-xl
         transition-all duration-500
         ${canFlip && !card.isRevealed ? "hover:scale-110 hover:-translate-y-2 cursor-pointer" : "cursor-default"}
-        ${!hasDealt ? "opacity-0 translate-y-20 scale-75" : "opacity-100 translate-y-0 scale-100"}
       `}
       style={{
         perspective: "1000px",
-        transform: isShuffling
-          ? `translate(${shuffleOffset.x}px, ${shuffleOffset.y}px) rotate(${shuffleOffset.rotation}deg)`
-          : undefined,
-        transitionDelay: !hasDealt ? `${dealIndex * 200}ms` : "0ms",
       }}
     >
       <div

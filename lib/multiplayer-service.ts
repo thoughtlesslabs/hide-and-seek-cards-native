@@ -6,25 +6,17 @@ const redis = Redis.fromEnv()
 
 const MAX_PLAYERS = 4
 const LOBBY_TIMER_MS = 30000
-const TURN_TIMEOUT_MS = 15000
+const TURN_TIMEOUT_MS = 30000
 const DISCONNECT_TIMEOUT_MS = 60000
 const GAME_START_DELAY_MS = 3000
 const BOT_NAMES = ["Silas", "Morgana", "Thorne", "Valeria", "Corvus", "Nyx"]
 const BOT_AVATAR_SEEDS = ["mystic", "shadow", "ember", "frost", "storm", "void"]
-const BOT_THINKING_DELAY_MS = 2000
-const REVEAL_RESULT_DURATION_MS = 4000
-const ELIMINATION_ANIMATION_DURATION_MS = 2000
-const FLIP_ANIMATION_DURATION_MS = 800
+const BOT_THINKING_DELAY_MS = 1500
+const REVEAL_RESULT_DURATION_MS = 2000
+const FLIP_ANIMATION_DURATION_MS = 1000
+const ELIMINATION_ANIMATION_DURATION_MS = 1500
 const ROUND_END_DELAY_MS = 3000
 const COUNTER_CLOCKWISE_ORDER = [0, 2, 1, 3]
-const DEALING_ANIMATION_DURATION_MS = 1500
-const SHUFFLING_ANIMATION_DURATION_MS = 800
-
-function getNextClockwiseIndex(currentIndex: number): number {
-  const currentPosition = COUNTER_CLOCKWISE_ORDER.indexOf(currentIndex)
-  const nextPosition = (currentPosition + 1) % COUNTER_CLOCKWISE_ORDER.length
-  return COUNTER_CLOCKWISE_ORDER[nextPosition]
-}
 
 const REDIS_TTL = {
   LOBBY: 1800,
@@ -235,10 +227,10 @@ export async function initializeGame(lobby: Lobby): Promise<SharedGameState> {
     cards: shuffledCards,
     currentPlayerIndex: startingPlayerIndex,
     targetPlayerId: null,
-    phase: "dealing",
-    lastMessage: "Dealing cards...",
+    phase: "select_target",
+    lastMessage: `${players[startingPlayerIndex]?.name}'s turn to choose a target...`,
     winnerId: null,
-    turnStartTime: null,
+    turnStartTime: Date.now(),
     lastMoveBy: null,
     lastMoveTime: null,
     version: 1,
@@ -253,8 +245,6 @@ export async function initializeGame(lobby: Lobby): Promise<SharedGameState> {
     seriesWinnerId: null,
     rematchVotes: [],
     roundsToWin: lobby.roundsToWin || 2,
-    dealingStartTime: Date.now(),
-    shufflingStartTime: null,
   }
   await saveGameState(state)
   return state
@@ -576,47 +566,6 @@ export async function getSharedGameState(playerId: string): Promise<SharedGameSt
 async function processGameTick(state: SharedGameState): Promise<SharedGameState> {
   const now = Date.now()
 
-  // Handle dealing phase countdown
-  if (state.phase === "dealing" && state.dealingStartTime) {
-    const elapsed = now - state.dealingStartTime
-    if (elapsed >= DEALING_ANIMATION_DURATION_MS) {
-      state.phase = "select_target"
-      state.turnStartTime = now
-      state.dealingStartTime = null
-      const currentPlayer = state.players[state.currentPlayerIndex]
-      state.lastMessage = `${currentPlayer?.name}'s turn to choose a target...`
-      state.version++
-      await saveGameState(state)
-    }
-    return state
-  }
-
-  if (state.phase === "shuffling" && state.shufflingStartTime) {
-    const elapsed = now - state.shufflingStartTime
-    if (elapsed >= SHUFFLING_ANIMATION_DURATION_MS) {
-      const currentIndex = state.currentPlayerIndex
-      let nextIndex = getNextClockwiseIndex(currentIndex)
-      let attempts = 0
-      while (state.players[nextIndex]?.isEliminated && attempts < state.players.length) {
-        nextIndex = getNextClockwiseIndex(nextIndex)
-        attempts++
-      }
-
-      state.currentPlayerIndex = nextIndex
-      state.targetPlayerId = null
-      state.phase = "select_target"
-      state.turnStartTime = now
-      state.shufflingStartTime = null
-
-      const nextPlayer = state.players[nextIndex]
-      state.lastMessage = `${nextPlayer?.name}'s turn to choose a target...`
-
-      state.version++
-      await saveGameState(state)
-    }
-    return state
-  }
-
   if (state.phase === "round_end" && state.roundEndTime) {
     const elapsed = now - state.roundEndTime
     if (elapsed >= ROUND_END_DELAY_MS) {
@@ -631,9 +580,7 @@ async function processGameTick(state: SharedGameState): Promise<SharedGameState>
     state.phase === "series_end" ||
     state.phase === "reveal_result" ||
     state.phase === "flipping" ||
-    state.phase === "elimination_animation" ||
-    state.phase === "dealing" ||
-    state.phase === "shuffling"
+    state.phase === "elimination_animation"
   ) {
     // Handle reveal result duration
     if (state.phase === "reveal_result" && state.revealResultTime) {
@@ -719,16 +666,25 @@ async function processAfterReveal(state: SharedGameState): Promise<SharedGameSta
 
 async function processAfterFlipping(state: SharedGameState): Promise<SharedGameState> {
   // Shuffle cards
-  for (let i = state.cards.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[state.cards[i], state.cards[j]] = [state.cards[j], state.cards[i]]
-  }
-  state.cards = state.cards.map((c, idx) => ({ ...c, position: idx }))
+  state.cards = state.cards.sort(() => Math.random() - 0.5).map((c, idx) => ({ ...c, position: idx }))
 
-  state.phase = "shuffling"
-  state.shufflingStartTime = Date.now()
+  // Move to next player directly
+  const currentIndex = state.currentPlayerIndex
+  let nextIndex = getNextClockwiseIndex(currentIndex)
+  let attempts = 0
+  while (state.players[nextIndex]?.isEliminated && attempts < state.players.length) {
+    nextIndex = getNextClockwiseIndex(nextIndex)
+    attempts++
+  }
+
+  state.currentPlayerIndex = nextIndex
+  state.targetPlayerId = null
+  state.phase = "select_target"
+  state.turnStartTime = Date.now()
   state.flippingStartTime = null
-  state.lastMessage = "Shuffling cards..."
+
+  const nextPlayer = state.players[nextIndex]
+  state.lastMessage = `${nextPlayer?.name}'s turn to choose a target...`
 
   state.version++
   await saveGameState(state)
@@ -782,21 +738,11 @@ async function processAfterElimination(state: SharedGameState): Promise<SharedGa
     return state
   }
 
-  state.phase = "shuffling"
-  state.shufflingStartTime = Date.now()
+  state.phase = "select_target"
+  state.turnStartTime = Date.now()
   state.flippingStartTime = null
-  state.lastMessage = "Shuffling cards..."
-
-  state.version++
-  await saveGameState(state)
-  return state
-}
-
-async function processAfterRoundEnd(state: SharedGameState): Promise<SharedGameState> {
-  // Reset game state for a new round
-  state.phase = "waiting"
-  state.gameStartTime = Date.now()
   state.lastMessage = "The shadows gather for a new round..."
+
   state.version++
   await saveGameState(state)
   return state
@@ -972,7 +918,7 @@ async function startNextRound(state: SharedGameState): Promise<SharedGameState> 
 
   // Create fresh cards for all players
   const cards: SharedCard[] = state.players.map((p, idx) => ({
-    id: `card-${idx}-r${state.currentRound + 1}`,
+    id: `card-${idx}`,
     ownerId: p.id,
     isRevealed: false,
     position: idx,
@@ -985,20 +931,21 @@ async function startNextRound(state: SharedGameState): Promise<SharedGameState> 
   state.currentRound++
 
   // Reset game state for new round
-  state.currentPlayerIndex = getNextClockwiseIndex(0)
+  const startingPlayerIndex = getNextClockwiseIndex(0)
+  state.currentPlayerIndex = startingPlayerIndex
   state.targetPlayerId = null
-  state.phase = "waiting"
-  state.gameStartTime = Date.now()
-  state.turnStartTime = null
+  state.phase = "select_target"
+  state.turnStartTime = Date.now()
+  state.winnerId = null
   state.pendingEliminationId = null
   state.revealResultTime = null
   state.flippingStartTime = null
   state.eliminationAnimationTime = null
   state.roundEndTime = null
   state.roundWinnerId = null
+  state.seriesWinnerId = null
   state.winner = null
-  state.winnerId = null
-  state.lastMessage = `Round ${state.currentRound} begins...`
+  state.lastMessage = `Round ${state.currentRound} - ${state.players[startingPlayerIndex]?.name}'s turn...`
 
   state.version++
   await saveGameState(state)
@@ -1034,7 +981,7 @@ async function voteRematch(playerId: string): Promise<SharedGameState | null> {
 
     // Create fresh cards
     const cards: SharedCard[] = state.players.map((p, idx) => ({
-      id: `card-${idx}-rematch`,
+      id: `card-${idx}`,
       ownerId: p.id,
       isRevealed: false,
       position: idx,
@@ -1044,9 +991,9 @@ async function voteRematch(playerId: string): Promise<SharedGameState | null> {
     state.currentRound = 1
     state.currentPlayerIndex = getNextClockwiseIndex(0)
     state.targetPlayerId = null
-    state.phase = "waiting"
-    state.gameStartTime = Date.now()
-    state.turnStartTime = null
+    state.phase = "select_target"
+    state.turnStartTime = Date.now()
+    state.winnerId = null
     state.pendingEliminationId = null
     state.revealResultTime = null
     state.flippingStartTime = null
@@ -1055,8 +1002,6 @@ async function voteRematch(playerId: string): Promise<SharedGameState | null> {
     state.roundWinnerId = null
     state.seriesWinnerId = null
     state.winner = null
-    state.winnerId = null
-    state.rematchVotes = []
     state.lastMessage = "New series begins..."
   }
 
@@ -1081,4 +1026,10 @@ export const multiplayerService = {
   checkTurnTimeout,
   checkAndTerminateBotOnlyGame,
   voteRematch,
+}
+
+function getNextClockwiseIndex(currentIndex: number): number {
+  const currentPosition = COUNTER_CLOCKWISE_ORDER.indexOf(currentIndex)
+  const nextPosition = (currentPosition + 1) % COUNTER_CLOCKWISE_ORDER.length
+  return COUNTER_CLOCKWISE_ORDER[nextPosition]
 }
