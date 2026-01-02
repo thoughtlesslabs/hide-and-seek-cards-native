@@ -17,7 +17,7 @@ import {
   voteForRematch,
   checkBotOnlyGame,
   sendHeartbeat,
-  getEmojiReactions,
+  getGameStateWithReactions, // Import new combined function
 } from "@/app/actions/multiplayer"
 
 const TURN_TIMEOUT_MS = 15000
@@ -151,7 +151,8 @@ export default function HideAndSeekCards() {
       if (!isMountedRef.current || !playerId || !currentLobby) return
 
       try {
-        const state = await getGameState(playerId)
+        const { state, reactions } = await getGameStateWithReactions(playerId)
+
         if (state && isMountedRef.current) {
           if (!Array.isArray(state.players) || !Array.isArray(state.cards)) {
             return
@@ -159,6 +160,10 @@ export default function HideAndSeekCards() {
           if (state.version !== lastVersionRef.current) {
             lastVersionRef.current = state.version
             setSharedGameState(state)
+          }
+
+          if (isMountedRef.current) {
+            setPlayerReactions(reactions || {})
           }
 
           if (
@@ -240,30 +245,6 @@ export default function HideAndSeekCards() {
     sendHeartbeat(playerId)
     return () => clearInterval(heartbeatInterval)
   }, [gameMode, currentLobby, playerId])
-
-  useEffect(() => {
-    if (gameMode !== "playing" || !currentLobby) return
-
-    const fetchReactions = async () => {
-      if (!isMountedRef.current) return // Added this check for safety
-      const reactions = await getEmojiReactions(currentLobby.id)
-      if (Object.keys(reactions).length > 0) {
-        console.log("[v0] Emoji reactions received:", reactions)
-        console.log(
-          "[v0] Current players:",
-          players.map((p) => ({ id: p.id, name: p.name })),
-        )
-      }
-      if (isMountedRef.current) {
-        // Added this check for safety
-        setPlayerReactions(reactions || {})
-      }
-    }
-
-    fetchReactions()
-    const interval = setInterval(fetchReactions, 1000)
-    return () => clearInterval(interval)
-  }, [gameMode, currentLobby])
 
   useEffect(() => {
     if (phase === "series_end" && gameMode === "playing") {
@@ -709,8 +690,10 @@ export default function HideAndSeekCards() {
               <div className="px-6 pb-6 pt-0 border-t border-amber-900/30">
                 <ul className="text-amber-200/80 text-sm space-y-2 text-left leading-relaxed mt-4">
                   <li>• Everyone gets a secret card - but you don&apos;t know which one is yours!</li>
-                  <li>• On your turn, pick someone to hunt, then flip a card</li>
-                  <li>• Find their card? They&apos;re out! Find your own? Oops, you&apos;re out!</li>
+                  <li>• On your turn, select a target player to hunt</li>
+                  <li>• Then flip one card from the center</li>
+                  <li>• Find your target&apos;s card? They&apos;re eliminated!</li>
+                  <li>• Flip your own card? You eliminate yourself!</li>
                   <li>• Flip someone else&apos;s card? Turn passes</li>
                   <li>• Last player standing wins the round!</li>
                   {roundsToWin > 1 && <li>• First to {roundsToWin} round wins takes the series!</li>}

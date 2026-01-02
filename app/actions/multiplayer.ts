@@ -81,6 +81,14 @@ export async function getGameState(playerId: string): Promise<SharedGameState | 
   return await multiplayerService.getSharedGameState(playerId)
 }
 
+export async function getGameStateWithReactions(
+  playerId: string,
+): Promise<{ state: SharedGameState | null; reactions: Record<string, string> }> {
+  if (!playerId || typeof playerId !== "string") return { state: null, reactions: {} }
+  if (!checkRateLimit(playerId)) return { state: null, reactions: {} }
+  return await multiplayerService.getSharedGameStateWithReactions(playerId)
+}
+
 export async function makeSelectTarget(playerId: string, targetId: string): Promise<SharedGameState | null> {
   if (!playerId || !targetId || typeof playerId !== "string" || typeof targetId !== "string") return null
   return await multiplayerService.selectTarget(playerId, targetId)

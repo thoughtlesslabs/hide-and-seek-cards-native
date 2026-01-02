@@ -1146,6 +1146,27 @@ async function getGlobalStats(): Promise<{
   }
 }
 
+export async function getSharedGameStateWithReactions(
+  playerId: string,
+): Promise<{ state: SharedGameState | null; reactions: Record<string, string> }> {
+  const sanitizedId = sanitizeId(playerId)
+  if (!sanitizedId) return { state: null, reactions: {} }
+
+  const lobbyId = await getPlayerLobbyId(sanitizedId)
+  if (!lobbyId) return { state: null, reactions: {} }
+
+  // Get game state
+  const state = await getGameState(lobbyId)
+  if (!state) return { state: null, reactions: {} }
+
+  const processedState = await processGameTick(state)
+
+  // Get reactions from lobby (reuses the lobbyId we already have)
+  const reactions = await getReactions(lobbyId)
+
+  return { state: processedState, reactions }
+}
+
 export const multiplayerService = {
   joinQueue,
   getLobby,
@@ -1163,6 +1184,7 @@ export const multiplayerService = {
   checkAndTerminateBotOnlyGame,
   voteRematch,
   getGlobalStats,
+  getSharedGameStateWithReactions,
 }
 
 function getNextClockwiseIndex(currentIndex: number): number {
