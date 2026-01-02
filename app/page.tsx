@@ -842,7 +842,7 @@ export default function HideAndSeekCards() {
           </div>
 
           {/* Bottom player (position 0 - local player) */}
-          <div className="absolute -bottom-8 sm:-bottom-6 md:-bottom-4 left-1/2 -translate-x-1/2 z-30">
+          <div className="absolute -bottom-8 sm:-bottom-6 md:-bottom-8 left-1/2 -translate-x-1/2 z-30">
             {getVisualPlayer(0) && (
               <PlayerSeat
                 player={getVisualPlayer(0)!}

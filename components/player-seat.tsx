@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import type { Player } from "@/types/game"
 import { ALLOWED_EMOJIS } from "@/types/multiplayer"
 import { MessageCircle } from "lucide-react"
@@ -32,6 +32,7 @@ export default function PlayerSeat({
 }: PlayerSeatProps) {
   const [showEmoji, setShowEmoji] = useState(false)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+  const emojiPickerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (displayedEmoji) {
@@ -40,6 +41,22 @@ export default function PlayerSeat({
       return () => clearTimeout(timer)
     }
   }, [displayedEmoji])
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(event.target as Node)) {
+        setShowEmojiPicker(false)
+      }
+    }
+
+    if (showEmojiPicker) {
+      document.addEventListener("mousedown", handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside)
+    }
+  }, [showEmojiPicker])
 
   const handleClick = () => {
     if (canBeTargeted && !player.isEliminated) {
@@ -66,8 +83,11 @@ export default function PlayerSeat({
       )}
 
       {showEmojiPicker && isLocalPlayer && (
-        <div className="absolute -top-20 sm:-top-24 left-1/2 -translate-x-1/2 z-50 bg-black/95 border border-amber-900/50 rounded-xl p-2 shadow-xl">
-          <div className="flex gap-1 flex-wrap max-w-[180px] justify-center">
+        <div
+          ref={emojiPickerRef}
+          className="absolute -top-20 sm:-top-24 left-1/2 -translate-x-1/2 z-50 bg-black/95 border border-amber-900/50 rounded-xl p-2 shadow-xl"
+        >
+          <div className="grid grid-cols-4 gap-1">
             {ALLOWED_EMOJIS.map((emoji) => (
               <button
                 key={emoji}
@@ -149,9 +169,9 @@ export default function PlayerSeat({
             ${
               isActive && turnTimeRemaining !== null && turnTimeRemaining !== undefined && !player.isEliminated
                 ? turnTimeRemaining <= 3
-                  ? "text-red-500 animate-pulse"
-                  : "text-amber-500"
-                : "opacity-0"
+                  ? "text-red-500 animate-pulse visible"
+                  : "text-amber-500 visible"
+                : "invisible"
             }
           `}
         >
@@ -165,7 +185,7 @@ export default function PlayerSeat({
             e.stopPropagation()
             setShowEmojiPicker(!showEmojiPicker)
           }}
-          className="-mt-1 sm:mt-0 p-2 rounded-full bg-amber-900/30 border border-amber-700/50 hover:bg-amber-800/50 hover:border-amber-600/70 transition-all hover:scale-110 active:scale-95"
+          className="mt-0 p-2 rounded-full bg-amber-900/30 border border-amber-700/50 hover:bg-amber-800/50 hover:border-amber-600/70 transition-all hover:scale-110 active:scale-95"
           title="Send emoji"
         >
           <MessageCircle className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500" />
