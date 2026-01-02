@@ -6,20 +6,27 @@ const redis = new Redis({
 })
 
 async function flushAllGameData() {
-  console.log("Flushing all game data from Redis...")
+  console.log("=== FLUSHING ALL REDIS DATA ===")
 
-  const keys = await redis.keys("*")
-  console.log(`Found ${keys.length} keys`)
+  try {
+    const keys = await redis.keys("*")
+    console.log(`Found ${keys.length} keys to delete`)
 
-  if (keys.length > 0) {
-    for (const key of keys) {
-      await redis.del(key)
-      console.log(`Deleted: ${key}`)
+    if (keys.length > 0) {
+      for (const key of keys) {
+        await redis.del(key)
+        console.log(`Deleted: ${key}`)
+      }
+      console.log(`\nSuccessfully deleted ${keys.length} keys`)
+    } else {
+      console.log("No keys found - Redis is already empty")
     }
-    console.log("All keys deleted")
-  }
 
-  console.log("Done! Redis is now clean.")
+    console.log("\n=== REDIS FLUSH COMPLETE ===")
+    console.log("You can now refresh the app to start fresh!")
+  } catch (error) {
+    console.error("Error flushing Redis:", error)
+  }
 }
 
-flushAllGameData().catch(console.error)
+flushAllGameData()

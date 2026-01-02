@@ -1,12 +1,10 @@
-import { Redis } from "@upstash/redis"
+import { redis, REDIS_KEYS as IMPORTED_REDIS_KEYS, REDIS_TTL as IMPORTED_REDIS_TTL } from "./redis"
 import type { Lobby, LobbyPlayer, SharedGameState, SharedPlayer, SharedCard } from "@/types/multiplayer"
 import { generateUsername } from "./username-generator"
 
-const redis = Redis.fromEnv()
-
 const MAX_PLAYERS = 4
 const LOBBY_TIMER_MS = 30000
-const TURN_TIMEOUT_MS = 30000
+const TURN_TIMEOUT_MS = 8000
 const DISCONNECT_TIMEOUT_MS = 60000
 const GAME_START_DELAY_MS = 3000
 const BOT_NAMES = ["Silas", "Morgana", "Thorne", "Valeria", "Corvus", "Nyx"]
@@ -19,20 +17,18 @@ const ROUND_END_DELAY_MS = 3000
 const COUNTER_CLOCKWISE_ORDER = [0, 2, 1, 3]
 
 const REDIS_TTL = {
-  LOBBY: 1800,
+  ...IMPORTED_REDIS_TTL,
   GAME: 1800,
-  PLAYER_MAPPING: 1800,
   ACTIVITY: 120,
-  PLAYER_INFO: 86400,
   REACTIONS: 60,
 }
 
 const REDIS_KEYS = {
-  LOBBY: (id: string) => `lobby:${id}`,
-  PLAYER_LOBBY: (id: string) => `player:lobby:${id}`,
-  PLAYER_INFO: (id: string) => `player:info:${id}`,
-  GAME_STATE: (lobbyId: string) => `game:state:${lobbyId}`,
-  WAITING_LOBBIES: "lobbies:waiting",
+  LOBBY: IMPORTED_REDIS_KEYS.LOBBY,
+  PLAYER_LOBBY: IMPORTED_REDIS_KEYS.PLAYER_LOBBY,
+  PLAYER_INFO: IMPORTED_REDIS_KEYS.PLAYER_INFO,
+  GAME_STATE: IMPORTED_REDIS_KEYS.GAME_STATE,
+  WAITING_LOBBIES: IMPORTED_REDIS_KEYS.WAITING_LOBBIES,
   PLAYER_ACTIVITY: (id: string) => `player:activity:${id}`,
   REACTIONS: (lobbyId: string) => `reactions:${lobbyId}`,
 }
@@ -82,6 +78,31 @@ function generateBot(existingPlayers: LobbyPlayer[] = []): LobbyPlayer {
   }
 }
 
+function safeJsonParse<T>(data: unknown, fallback: T): T {
+  if (data === null || data === undefined) return fallback
+
+  // If it's already an object (from old automatic deserialization), return it
+  if (typeof data === "object") {
+    return data as T
+  }
+
+  // If it's a string, try to parse it
+  if (typeof data === "string") {
+    try {
+      return JSON.parse(data) as T
+    } catch {
+      return fallback
+    }
+  }
+
+  return fallback
+}
+
+function ensureArray<T>(value: unknown): T[] {
+  if (Array.isArray(value)) return value
+  return []
+}
+
 function createPlayer(playerId: string): LobbyPlayer {
   const username = generateUsername()
   return {
@@ -96,112 +117,142 @@ function createPlayer(playerId: string): LobbyPlayer {
 }
 
 async function saveLobby(lobby: Lobby): Promise<void> {
-  const lobbyData = {
-    ...lobby,
-    players: JSON.stringify(lobby.players),
-    reactions: JSON.stringify(lobby.reactions),
+  try {
+    await redis.set(REDIS_KEYS.LOBBY(lobby.id), JSON.stringify(lobby), { ex: REDIS_TTL.LOBBY })
+  } catch (e) {
+    console.error("[v0] Error saving lobby:", e)
   }
-  await redis.set(REDIS_KEYS.LOBBY(lobby.id), JSON.stringify(lobbyData), { ex: REDIS_TTL.LOBBY })
 }
 
 async function getLobbyById(lobbyId: string): Promise<Lobby | null> {
   if (!isValidId(lobbyId)) return null
-
-  const data = await redis.get(REDIS_KEYS.LOBBY(lobbyId))
-  if (!data) return null
-
   try {
-    const parsed = typeof data === "string" ? JSON.parse(data) : data
-    const players = typeof parsed.players === "string" ? JSON.parse(parsed.players) : parsed.players
-    const reactions = typeof parsed.reactions === "string" ? JSON.parse(parsed.reactions) : parsed.reactions
-    return {
-      ...parsed,
-      players: Array.isArray(players) ? players : [],
-      reactions: reactions || {},
-    }
-  } catch {
+    const data = await redis.get(REDIS_KEYS.LOBBY(lobbyId))
+    if (!data) return null
+
+    const lobby = safeJsonParse<Lobby | null>(data, null)
+    if (!lobby) return null
+
+    // Ensure players is always an array
+    lobby.players = ensureArray(lobby.players)
+    lobby.reactions = ensureArray(lobby.reactions)
+
+    return lobby
+  } catch (e) {
+    console.error("[v0] Error getting lobby:", e)
+    try {
+      await redis.del(REDIS_KEYS.LOBBY(lobbyId))
+    } catch {}
     return null
   }
 }
 
 async function getPlayerLobbyId(playerId: string): Promise<string | null> {
   if (!isValidId(playerId)) return null
-  const lobbyId = await redis.get(REDIS_KEYS.PLAYER_LOBBY(playerId))
-  return lobbyId as string | null
+  try {
+    const lobbyId = await redis.get(REDIS_KEYS.PLAYER_LOBBY(playerId))
+    if (!lobbyId) return null
+    // Handle both string and object cases
+    if (typeof lobbyId === "string") return lobbyId
+    if (typeof lobbyId === "object" && lobbyId !== null) {
+      // Old format might have stored as object
+      return String(lobbyId)
+    }
+    return null
+  } catch (e) {
+    console.error("[v0] Error getting player lobby:", e)
+    return null
+  }
 }
 
 async function setPlayerLobby(playerId: string, lobbyId: string): Promise<void> {
-  await redis.set(REDIS_KEYS.PLAYER_LOBBY(playerId), lobbyId, { ex: REDIS_TTL.PLAYER_MAPPING })
+  try {
+    await redis.set(REDIS_KEYS.PLAYER_LOBBY(playerId), lobbyId, { ex: REDIS_TTL.PLAYER_MAPPING })
+  } catch (e) {
+    console.error("[v0] Error setting player lobby:", e)
+  }
 }
 
 async function removePlayerLobby(playerId: string): Promise<void> {
-  await redis.del(REDIS_KEYS.PLAYER_LOBBY(playerId))
+  try {
+    await redis.del(REDIS_KEYS.PLAYER_LOBBY(playerId))
+  } catch (e) {
+    console.error("[v0] Error removing player lobby:", e)
+  }
 }
 
 async function getPlayerInfo(playerId: string): Promise<LobbyPlayer | null> {
   if (!isValidId(playerId)) return null
-  const data = await redis.get(REDIS_KEYS.PLAYER_INFO(playerId))
-  if (!data) return null
   try {
-    return typeof data === "string" ? JSON.parse(data) : (data as LobbyPlayer)
-  } catch {
+    const data = await redis.get(REDIS_KEYS.PLAYER_INFO(playerId))
+    if (!data) return null
+    return safeJsonParse<LobbyPlayer | null>(data, null)
+  } catch (e) {
+    console.error("[v0] Error getting player info:", e)
     return null
   }
 }
 
-async function savePlayerInfo(player: LobbyPlayer): Promise<void> {
-  await redis.set(REDIS_KEYS.PLAYER_INFO(player.id), JSON.stringify(player), { ex: REDIS_TTL.PLAYER_INFO })
+async function setPlayerInfo(playerId: string, player: LobbyPlayer): Promise<void> {
+  try {
+    await redis.set(REDIS_KEYS.PLAYER_INFO(playerId), JSON.stringify(player), { ex: REDIS_TTL.PLAYER_MAPPING })
+  } catch (e) {
+    console.error("[v0] Error setting player info:", e)
+  }
 }
 
-async function saveGameState(state: SharedGameState): Promise<void> {
-  const stateData = {
-    ...state,
-    players: JSON.stringify(state.players),
-    cards: JSON.stringify(state.cards),
+async function saveGameState(lobbyId: string, state: SharedGameState): Promise<void> {
+  try {
+    await redis.set(REDIS_KEYS.GAME_STATE(lobbyId), JSON.stringify(state), { ex: REDIS_TTL.GAME })
+  } catch (e) {
+    console.error("[v0] Error saving game state:", e)
   }
-  await redis.set(REDIS_KEYS.GAME_STATE(state.lobbyId), JSON.stringify(stateData), { ex: REDIS_TTL.GAME })
 }
 
 async function getGameState(lobbyId: string): Promise<SharedGameState | null> {
   if (!isValidId(lobbyId)) return null
-  const data = await redis.get(REDIS_KEYS.GAME_STATE(lobbyId))
-  if (!data) return null
-
   try {
-    const parsed = typeof data === "string" ? JSON.parse(data) : data
-    const players = typeof parsed.players === "string" ? JSON.parse(parsed.players) : parsed.players
-    const cards = typeof parsed.cards === "string" ? JSON.parse(parsed.cards) : parsed.cards
+    const data = await redis.get(REDIS_KEYS.GAME_STATE(lobbyId))
+    if (!data) return null
 
-    return {
-      ...parsed,
-      players: Array.isArray(players) ? players : [],
-      cards: Array.isArray(cards) ? cards : [],
+    let state: SharedGameState | null = null
+
+    // Handle both already-parsed objects and strings
+    if (typeof data === "object" && data !== null) {
+      state = data as SharedGameState
+    } else if (typeof data === "string") {
+      try {
+        state = JSON.parse(data) as SharedGameState
+      } catch {
+        return null
+      }
     }
-  } catch {
+
+    if (!state) return null
+
+    // Ensure arrays are valid - defensive checks
+    if (!Array.isArray(state.players)) state.players = []
+    if (!Array.isArray(state.cards)) state.cards = []
+    if (!Array.isArray(state.rematchVotes)) state.rematchVotes = []
+
+    return state
+  } catch (e) {
+    console.error("[v0] Error getting game state:", e)
+    // Delete corrupted data
+    try {
+      await redis.del(REDIS_KEYS.GAME_STATE(lobbyId))
+    } catch {}
     return null
   }
 }
 
-async function cleanupGameResources(lobbyId: string, playerIds: string[]): Promise<void> {
-  const keysToDelete = [
-    REDIS_KEYS.LOBBY(lobbyId),
-    REDIS_KEYS.GAME_STATE(lobbyId),
-    REDIS_KEYS.REACTIONS(lobbyId),
-    ...playerIds.map((id) => REDIS_KEYS.PLAYER_ACTIVITY(id)),
-    ...playerIds.map((id) => REDIS_KEYS.PLAYER_LOBBY(id)),
-  ]
-
-  const batchSize = 10
-  for (let i = 0; i < keysToDelete.length; i += batchSize) {
-    const batch = keysToDelete.slice(i, i + batchSize)
-    await Promise.all(batch.map((key) => redis.del(key)))
+async function initializeGame(lobby: Lobby): Promise<SharedGameState> {
+  const lobbyPlayers = ensureArray<LobbyPlayer>(lobby.players)
+  if (lobbyPlayers.length === 0) {
+    throw new Error("Cannot initialize game with no players")
   }
 
-  await redis.zrem(REDIS_KEYS.WAITING_LOBBIES, lobbyId)
-}
-
-export async function initializeGame(lobby: Lobby): Promise<SharedGameState> {
-  const players: SharedPlayer[] = lobby.players.map((p, idx) => ({
+  const players: SharedPlayer[] = lobbyPlayers.map((p, idx) => ({
     id: p.id,
     name: p.username,
     isHuman: !p.isBot,
@@ -246,7 +297,7 @@ export async function initializeGame(lobby: Lobby): Promise<SharedGameState> {
     rematchVotes: [],
     roundsToWin: lobby.roundsToWin || 2,
   }
-  await saveGameState(state)
+  await saveGameState(state.lobbyId, state)
   return state
 }
 
@@ -304,10 +355,10 @@ export async function joinQueue(playerId: string, roundsToWin = 2): Promise<Lobb
   let player = await getPlayerInfo(sanitizedId)
   if (!player) {
     player = createPlayer(sanitizedId)
-    await savePlayerInfo(player)
+    await setPlayerInfo(sanitizedId, player)
   } else {
     player.lastActivity = Date.now()
-    await savePlayerInfo(player)
+    await setPlayerInfo(sanitizedId, player)
   }
 
   const waitingLobbyIds = await redis.zrange(REDIS_KEYS.WAITING_LOBBIES, 0, -1)
@@ -486,7 +537,7 @@ export async function checkDisconnectedPlayers(lobbyId: string): Promise<string[
     disconnected.push(currentPlayer.id)
 
     state.version++
-    await saveGameState(state)
+    await saveGameState(state.lobbyId, state)
   }
 
   return disconnected
@@ -507,7 +558,7 @@ export async function leaveGame(playerId: string): Promise<void> {
     player.isHuman = false
     player.name = `${player.name} (Bot)`
     state.version++
-    await saveGameState(state)
+    await saveGameState(state.lobbyId, state)
   }
 
   await removePlayerLobby(sanitizedId)
@@ -660,7 +711,7 @@ async function processAfterReveal(state: SharedGameState): Promise<SharedGameSta
   }
 
   state.version++
-  await saveGameState(state)
+  await saveGameState(state.lobbyId, state)
   return state
 }
 
@@ -689,7 +740,7 @@ async function processAfterFlipping(state: SharedGameState): Promise<SharedGameS
   state.lastMessage = `${nextPlayer?.name}'s turn to choose a target...`
 
   state.version++
-  await saveGameState(state)
+  await saveGameState(state.lobbyId, state)
   return state
 }
 
@@ -741,7 +792,7 @@ async function processAfterElimination(state: SharedGameState): Promise<SharedGa
     state.pendingEliminationId = null
     state.eliminationAnimationTime = null
     state.version++
-    await saveGameState(state)
+    await saveGameState(state.lobbyId, state)
     return state
   }
 
@@ -767,7 +818,7 @@ async function processAfterElimination(state: SharedGameState): Promise<SharedGa
   state.lastMessage = `${nextPlayer?.name}'s turn to choose a target...`
 
   state.version++
-  await saveGameState(state)
+  await saveGameState(state.lobbyId, state)
   return state
 }
 
@@ -783,7 +834,7 @@ async function handleTurnTimeout(state: SharedGameState): Promise<SharedGameStat
       state.lastMessage = `Time's up! ${currentPlayer.name} auto-targets ${target.name}.`
       state.turnStartTime = Date.now()
       state.version++
-      await saveGameState(state)
+      await saveGameState(state.lobbyId, state)
     }
   } else if (state.phase === "select_card") {
     const availableCards = state.cards.filter((c) => !c.isRevealed)
@@ -811,7 +862,7 @@ async function processBotTurnImmediate(state: SharedGameState): Promise<SharedGa
       state.lastMessage = `${currentPlayer.name} targets ${target.name}...`
       state.turnStartTime = Date.now()
       state.version++
-      await saveGameState(state)
+      await saveGameState(state.lobbyId, state)
     }
   } else if (state.phase === "select_card") {
     const availableCards = state.cards.filter((c) => !c.isRevealed)
@@ -858,7 +909,7 @@ async function executeCardPick(
   state.lastMoveTime = Date.now()
   state.version++
 
-  await saveGameState(state)
+  await saveGameState(state.lobbyId, state)
   return state
 }
 
@@ -883,7 +934,7 @@ export async function selectTarget(playerId: string, targetId: string): Promise<
   state.lastMessage = `${currentPlayer.name} is targeting ${target.name}...`
   state.version++
 
-  await saveGameState(state)
+  await saveGameState(state.lobbyId, state)
   return state
 }
 
@@ -972,7 +1023,7 @@ async function startNextRound(state: SharedGameState): Promise<SharedGameState> 
   state.lastMessage = `Round ${state.currentRound} - ${state.players[startingPlayerIndex]?.name}'s turn...`
 
   state.version++
-  await saveGameState(state)
+  await saveGameState(state.lobbyId, state)
   return state
 }
 
@@ -1032,7 +1083,7 @@ async function voteRematch(playerId: string): Promise<SharedGameState | null> {
   }
 
   state.version++
-  await saveGameState(state)
+  await saveGameState(state.lobbyId, state)
   return state
 }
 
@@ -1058,4 +1109,22 @@ function getNextClockwiseIndex(currentIndex: number): number {
   const currentPosition = COUNTER_CLOCKWISE_ORDER.indexOf(currentIndex)
   const nextPosition = (currentPosition + 1) % COUNTER_CLOCKWISE_ORDER.length
   return COUNTER_CLOCKWISE_ORDER[nextPosition]
+}
+
+async function cleanupGameResources(lobbyId: string, playerIds: string[]): Promise<void> {
+  const keysToDelete = [
+    REDIS_KEYS.LOBBY(lobbyId),
+    REDIS_KEYS.GAME_STATE(lobbyId),
+    REDIS_KEYS.REACTIONS(lobbyId),
+    ...playerIds.map((id) => REDIS_KEYS.PLAYER_ACTIVITY(id)),
+    ...playerIds.map((id) => REDIS_KEYS.PLAYER_LOBBY(id)),
+  ]
+
+  const batchSize = 10
+  for (let i = 0; i < keysToDelete.length; i += batchSize) {
+    const batch = keysToDelete.slice(i, i + batchSize)
+    await Promise.all(batch.map((key) => redis.del(key)))
+  }
+
+  await redis.zrem(REDIS_KEYS.WAITING_LOBBIES, lobbyId)
 }

@@ -57,7 +57,7 @@ export default function PlayerSeat({
   const isClickable = canBeTargeted && !player.isEliminated
 
   return (
-    <div className="relative flex flex-col items-center gap-1 h-[140px] sm:h-[170px] md:h-[200px]">
+    <div className="relative flex flex-col items-center gap-1 h-[150px] sm:h-[180px] md:h-[210px]">
       {/* Emoji display above avatar */}
       {showEmoji && displayedEmoji && (
         <div className="absolute -top-12 sm:-top-14 left-1/2 -translate-x-1/2 text-4xl sm:text-5xl animate-bounce z-50">
@@ -133,7 +133,7 @@ export default function PlayerSeat({
       </button>
 
       {/* Player name and timer */}
-      <div className="flex flex-col items-center min-h-[2.5rem] sm:min-h-[3rem] mt-2 sm:mt-3">
+      <div className="flex flex-col items-center h-[2.5rem] sm:h-[3rem] mt-2 sm:mt-3">
         <span
           className={`
           font-serif text-sm sm:text-base md:text-lg tracking-wider uppercase font-bold whitespace-nowrap
@@ -148,14 +148,14 @@ export default function PlayerSeat({
             font-mono text-xs sm:text-sm font-bold h-4 sm:h-5
             ${
               isActive && turnTimeRemaining !== null && turnTimeRemaining !== undefined && !player.isEliminated
-                ? turnTimeRemaining <= 5
+                ? turnTimeRemaining <= 3
                   ? "text-red-500 animate-pulse"
                   : "text-amber-500"
-                : "invisible"
+                : "opacity-0"
             }
           `}
         >
-          {isActive && turnTimeRemaining !== null && turnTimeRemaining !== undefined ? `${turnTimeRemaining}s` : "0s"}
+          {turnTimeRemaining !== null && turnTimeRemaining !== undefined ? `${turnTimeRemaining}s` : "0s"}
         </span>
       </div>
 
@@ -165,7 +165,7 @@ export default function PlayerSeat({
             e.stopPropagation()
             setShowEmojiPicker(!showEmojiPicker)
           }}
-          className="mt-1 p-2 rounded-full bg-amber-900/30 border border-amber-700/50 hover:bg-amber-800/50 hover:border-amber-600/70 transition-all hover:scale-110 active:scale-95"
+          className="-mt-1 sm:mt-0 p-2 rounded-full bg-amber-900/30 border border-amber-700/50 hover:bg-amber-800/50 hover:border-amber-600/70 transition-all hover:scale-110 active:scale-95"
           title="Send emoji"
         >
           <MessageCircle className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500" />

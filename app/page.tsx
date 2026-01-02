@@ -51,6 +51,8 @@ export default function HideAndSeekCards() {
   const [localSelectedTarget, setLocalSelectedTarget] = useState<string | null>(null)
   const [hasVotedRematch, setHasVotedRematch] = useState(false)
   const [rematchCountdown, setRematchCountdown] = useState<number | null>(null)
+  const [gameStartedWhileAway, setGameStartedWhileAway] = useState(false)
+  const [pendingGameLobby, setPendingGameLobby] = useState<Lobby | null>(null)
 
   const handleLeaveGame = useCallback(async () => {
     await leaveGame(playerId)
@@ -287,8 +289,25 @@ export default function HideAndSeekCards() {
     }
   }, [phase, currentRound])
 
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible" && pendingGameLobby) {
+        setGameStartedWhileAway(true)
+      }
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange)
+  }, [pendingGameLobby])
+
   const handleGameStart = useCallback(
     async (lobby: Lobby) => {
+      if (document.visibilityState !== "visible") {
+        // User is away, store the lobby for when they return
+        setPendingGameLobby(lobby)
+        return
+      }
+
       setCurrentLobby(lobby)
       setGameMode("playing")
       lastVersionRef.current = 0
@@ -361,6 +380,26 @@ export default function HideAndSeekCards() {
       setHasVotedRematch(false)
     }
   }, [playerId, hasVotedRematch])
+
+  const handleJoinPendingGame = async () => {
+    if (pendingGameLobby) {
+      setCurrentLobby(pendingGameLobby)
+      setGameMode("playing")
+      const state = await getGameState(playerId)
+      if (state) {
+        setSharedGameState(state)
+      }
+      setPendingGameLobby(null)
+      setGameStartedWhileAway(false)
+    }
+  }
+
+  const handleDismissPendingGame = async () => {
+    await leaveGame(playerId)
+    setPendingGameLobby(null)
+    setGameStartedWhileAway(false)
+    setGameMode("menu")
+  }
 
   const isCardSelectable = (card: Card) => {
     const currentPlayer = players[currentPlayerIndex]
@@ -668,6 +707,36 @@ export default function HideAndSeekCards() {
                 Donate Now
               </a>
             </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (gameStartedWhileAway && pendingGameLobby) {
+    return (
+      <div className="min-h-screen w-full bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden p-4">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(217,119,6,0.03)_0%,_#050505_80%)] opacity-50"></div>
+
+        <div className="relative z-10 bg-black/90 backdrop-blur-xl border-2 border-amber-900/40 rounded-2xl p-8 max-w-md w-full text-center">
+          <h2 className="font-serif text-2xl sm:text-3xl text-amber-700 tracking-widest mb-4">GAME STARTED</h2>
+          <p className="text-amber-100/80 font-serif mb-8">
+            The game has started while you were away. Would you like to join?
+          </p>
+
+          <div className="flex flex-col gap-4">
+            <button
+              onClick={handleJoinPendingGame}
+              className="w-full px-8 py-4 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-lg rounded-xl font-bold transition-all font-serif tracking-widest border border-amber-700/50"
+            >
+              Join Game
+            </button>
+            <button
+              onClick={handleDismissPendingGame}
+              className="w-full px-8 py-3 bg-black/40 hover:bg-black/60 text-amber-200/80 text-base rounded-xl font-bold transition-all font-serif tracking-widest border border-amber-900/30"
+            >
+              Exit to Menu
+            </button>
           </div>
         </div>
       </div>

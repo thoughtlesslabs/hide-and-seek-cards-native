@@ -7,12 +7,35 @@ export const redis = new Redis({
 
 // Key prefixes for Redis
 export const REDIS_KEYS = {
-  LOBBY: "lobby:", // lobby:{lobbyId} -> Lobby object
-  PLAYER_LOBBY: "player:lobby:", // player:lobby:{odId} -> lobbyId
-  PLAYER_INFO: "player:info:", // player:info:{playerId} -> LobbyPlayer object
-  WAITING_LOBBIES: "waiting:lobbies", // Sorted set of waiting lobbies by creation time
-  REACTIONS: "reactions:", // reactions:{lobbyId} -> list of reactions
+  LOBBY: (id: string) => `lobby:${id}`,
+  PLAYER_LOBBY: (id: string) => `player:lobby:${id}`,
+  PLAYER_INFO: (id: string) => `player:info:${id}`,
+  WAITING_LOBBIES: "lobbies:waiting",
+  GAME_STATE: (id: string) => `game:state:${id}`,
 } as const
 
-// TTL for Redis keys (1 hour)
-export const REDIS_TTL = 3600
+// TTL for Redis keys
+export const REDIS_TTL = {
+  LOBBY: 1800,
+  PLAYER_MAPPING: 1800,
+  GAME_STATE: 1800,
+} as const
+
+export async function flushAllGameData(): Promise<{ success: boolean; message: string }> {
+  try {
+    const patterns = ["lobby:*", "player:*", "game:*", "lobbies:*", "reactions:*"]
+    let deletedCount = 0
+
+    for (const pattern of patterns) {
+      const keys = await redis.keys(pattern)
+      if (keys.length > 0) {
+        await redis.del(...keys)
+        deletedCount += keys.length
+      }
+    }
+
+    return { success: true, message: `Deleted ${deletedCount} keys` }
+  } catch (error) {
+    return { success: false, message: String(error) }
+  }
+}
