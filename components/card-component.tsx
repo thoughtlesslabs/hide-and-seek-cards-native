@@ -11,34 +11,18 @@ interface CardComponentProps {
 }
 
 export default function CardComponent({ card, totalCards, canFlip, onFlip, playerAvatar }: CardComponentProps) {
-  // Calculate position for fan layout
-  const getCardPosition = (index: number, total: number) => {
-    const spreadAngle = Math.min(15, 60 / total)
-    const centerIndex = (total - 1) / 2
-    const angleOffset = (index - centerIndex) * spreadAngle
-    const xOffset = (index - centerIndex) * (total <= 2 ? 70 : total <= 3 ? 55 : 45)
-
-    return {
-      transform: `rotate(${angleOffset}deg) translateY(${Math.abs(index - centerIndex) * 5}px)`,
-      left: `calc(50% + ${xOffset}px)`,
-      marginLeft: "-40px",
-    }
-  }
-
-  const position = getCardPosition(card.position, totalCards)
-
   return (
     <button
       onClick={() => canFlip && !card.isRevealed && onFlip()}
       disabled={!canFlip || card.isRevealed}
       className={`
-        absolute top-1/2 -translate-y-1/2
-        w-20 h-28 sm:w-22 sm:h-32 md:w-24 md:h-34 lg:w-26 lg:h-38
+        relative flex-shrink-0
+        w-20 h-28 sm:w-24 sm:h-34 md:w-28 md:h-40 lg:w-32 lg:h-44
         rounded-lg sm:rounded-xl
         transition-all duration-300
-        ${canFlip && !card.isRevealed ? "hover:scale-105 hover:-translate-y-3 cursor-pointer" : "cursor-default"}
+        ${canFlip && !card.isRevealed ? "hover:scale-110 hover:-translate-y-2 cursor-pointer" : "cursor-default"}
       `}
-      style={{ ...position, perspective: "1000px" }}
+      style={{ perspective: "1000px" }}
     >
       <div
         className={`
