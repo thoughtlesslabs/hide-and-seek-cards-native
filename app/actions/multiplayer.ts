@@ -116,3 +116,17 @@ export async function voteForRematch(playerId: string): Promise<SharedGameState 
   if (!playerId || typeof playerId !== "string") return null
   return await multiplayerService.voteRematch(playerId)
 }
+
+export async function getGlobalStats(): Promise<{
+  playersOnline: number
+  gamesInProgress: number
+  playersInQueue: number
+}> {
+  try {
+    const stats = await multiplayerService.getGlobalStats()
+    return stats
+  } catch (error) {
+    console.error("[v0] Error fetching global stats:", error)
+    return { playersOnline: 0, gamesInProgress: 0, playersInQueue: 0 }
+  }
+}

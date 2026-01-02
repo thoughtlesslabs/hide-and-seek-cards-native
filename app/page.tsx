@@ -7,6 +7,8 @@ import PlayerSeat from "@/components/player-seat"
 import CardComponent from "@/components/card-component"
 import MatchmakingScreen from "@/components/matchmaking-screen"
 import OfflineGame from "@/components/offline-game"
+import AnimatedCardPreview from "@/components/animated-card-preview"
+import LiveStats from "@/components/live-stats"
 import {
   getGameState,
   leaveGame,
@@ -642,19 +644,36 @@ export default function HideAndSeekCards() {
   if (gameMode === "menu") {
     return (
       <div className="min-h-screen w-full bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden p-4">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(217,119,6,0.03)_0%,_#050505_80%)] opacity-50"></div>
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(217,119,6,0.05)_0%,_#050505_70%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(180,83,9,0.08)_0%,_transparent_50%)]" />
 
-        <div className="relative z-10 text-center max-w-lg">
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-1/4 left-1/4 w-1 h-1 bg-amber-500/30 rounded-full animate-pulse" />
+          <div className="absolute top-1/3 right-1/3 w-1.5 h-1.5 bg-amber-600/20 rounded-full animate-pulse delay-300" />
+          <div className="absolute bottom-1/4 left-1/3 w-1 h-1 bg-amber-400/25 rounded-full animate-pulse delay-700" />
+          <div className="absolute top-1/2 right-1/4 w-1 h-1 bg-amber-500/20 rounded-full animate-pulse delay-500" />
+        </div>
+
+        <div className="relative z-10 text-center max-w-lg w-full">
+          <div className="mb-6">
+            <LiveStats />
+          </div>
+
           <h1 className="font-serif text-4xl sm:text-5xl md:text-6xl text-amber-700 tracking-widest mb-4 drop-shadow-[0_0_30px_rgba(180,83,9,0.6)]">
             HIDE & SEEK
           </h1>
-          <h2 className="font-serif text-3xl sm:text-4xl md:text-5xl text-amber-600 tracking-widest mb-12">CARDS</h2>
+          <h2 className="font-serif text-3xl sm:text-4xl md:text-5xl text-amber-600 tracking-widest mb-6">CARDS</h2>
 
-          <p className="text-amber-100/70 font-serif text-base sm:text-lg mb-12 leading-relaxed">
+          <div className="mb-6">
+            <AnimatedCardPreview />
+            <p className="text-amber-200/50 text-xs mt-2 italic">Watch the cards reveal their secrets...</p>
+          </div>
+
+          <p className="text-amber-100/70 font-serif text-base sm:text-lg mb-8 leading-relaxed">
             A game of deception and fate. Four enter. One persists.
           </p>
 
-          <div className="flex flex-col gap-4 mb-16">
+          <div className="flex flex-col gap-4 mb-12">
             <button
               onClick={() => setGameMode("roundSelection")}
               className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl"
@@ -669,44 +688,52 @@ export default function HideAndSeekCards() {
             </button>
           </div>
 
-          <div className="bg-black/60 backdrop-blur-xl border border-amber-900/30 rounded-xl p-6">
-            <h3 className="font-serif text-amber-500 text-lg font-bold tracking-wider uppercase mb-3 border-b border-amber-900/30 pb-2">
-              How to Play
-            </h3>
-            <ul className="text-amber-200/80 text-sm space-y-2 text-left leading-relaxed mb-6">
-              <li>• Everyone gets a secret card - but you don&apos;t know which one is yours!</li>
-              <li>• On your turn, pick someone to hunt, then flip a card</li>
-              <li>• Find their card? They&apos;re out! Find your own? Oops, you&apos;re out!</li>
-              <li>• Flip someone else&apos;s card? Turn passes</li>
-              <li>• Last player standing wins the round!</li>
-              {roundsToWin > 1 && <li>• First to {roundsToWin} round wins takes the series!</li>}
-            </ul>
-          </div>
+          <div className="space-y-4">
+            <details className="bg-black/60 backdrop-blur-xl border border-amber-900/30 rounded-xl group">
+              <summary className="font-serif text-amber-500 text-lg font-bold tracking-wider uppercase p-6 cursor-pointer list-none flex items-center justify-between hover:text-amber-400 transition-colors">
+                How to Play
+                <span className="text-amber-600 group-open:rotate-180 transition-transform">▼</span>
+              </summary>
+              <div className="px-6 pb-6 pt-0 border-t border-amber-900/30">
+                <ul className="text-amber-200/80 text-sm space-y-2 text-left leading-relaxed mt-4">
+                  <li>• Everyone gets a secret card - but you don&apos;t know which one is yours!</li>
+                  <li>• On your turn, pick someone to hunt, then flip a card</li>
+                  <li>• Find their card? They&apos;re out! Find your own? Oops, you&apos;re out!</li>
+                  <li>• Flip someone else&apos;s card? Turn passes</li>
+                  <li>• Last player standing wins the round!</li>
+                  {roundsToWin > 1 && <li>• First to {roundsToWin} round wins takes the series!</li>}
+                </ul>
+              </div>
+            </details>
 
-          <div className="bg-black/60 backdrop-blur-xl border border-amber-900/30 rounded-xl p-6 mt-4">
-            <h3 className="font-serif text-amber-500 text-lg font-bold tracking-wider uppercase mb-3 border-b border-amber-900/30 pb-2">
-              Our Story
-            </h3>
-            <p className="text-amber-200/80 text-sm text-left leading-relaxed">
-              I built this game for my kids. They are actually the creators of this game and invented it on one of our
-              family camping trips. We all had so much fun playing it, I wanted to bring the joy of the game to
-              everyone.
-            </p>
-            <p className="text-amber-200/80 text-sm text-left leading-relaxed mt-3 italic">
-              I hope you have fun playing, Hide and Seek Cards.
-            </p>
+            <details className="bg-black/60 backdrop-blur-xl border border-amber-900/30 rounded-xl group">
+              <summary className="font-serif text-amber-500 text-lg font-bold tracking-wider uppercase p-6 cursor-pointer list-none flex items-center justify-between hover:text-amber-400 transition-colors">
+                Our Story
+                <span className="text-amber-600 group-open:rotate-180 transition-transform">▼</span>
+              </summary>
+              <div className="px-6 pb-6 pt-0 border-t border-amber-900/30">
+                <p className="text-amber-200/80 text-sm text-left leading-relaxed mt-4">
+                  I built this game for my kids. They are actually the creators of this game and invented it on one of
+                  our family camping trips. We all had so much fun playing it, I wanted to bring the joy of the game to
+                  everyone.
+                </p>
+                <p className="text-amber-200/80 text-sm text-left leading-relaxed mt-3 italic">
+                  I hope you have fun playing, Hide and Seek Cards.
+                </p>
 
-            <div className="mt-4 pt-4 border-t border-amber-900/30">
-              <p className="text-amber-200/60 text-sm text-center mb-3">Enjoying the game? Consider donating.</p>
-              <a
-                href="https://buy.stripe.com/aFa5kEdUw24aecBewpbsc0b"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-block w-full px-6 py-3 bg-amber-700/30 hover:bg-amber-700/50 text-amber-200 text-sm rounded-xl font-bold transition-all text-center font-serif tracking-widest border border-amber-600/50 shadow-lg hover:shadow-amber-900/20 hover:scale-[1.02] active:scale-[0.98]"
-              >
-                Donate Now
-              </a>
-            </div>
+                <div className="mt-4 pt-4 border-t border-amber-900/30">
+                  <p className="text-amber-200/60 text-sm text-center mb-3">Enjoying the game? Consider donating.</p>
+                  <a
+                    href="https://buy.stripe.com/aFa5kEdUw24aecBewpbsc0b"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-block w-full px-6 py-3 bg-amber-700/30 hover:bg-amber-700/50 text-amber-200 text-sm rounded-xl font-bold transition-all text-center font-serif tracking-widest border border-amber-600/50 shadow-lg hover:shadow-amber-900/20 hover:scale-[1.02] active:scale-[0.98]"
+                  >
+                    Donate Now
+                  </a>
+                </div>
+              </div>
+            </details>
           </div>
         </div>
       </div>

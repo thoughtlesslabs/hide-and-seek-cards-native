@@ -1087,6 +1087,55 @@ async function voteRematch(playerId: string): Promise<SharedGameState | null> {
   return state
 }
 
+async function getGlobalStats(): Promise<{
+  playersOnline: number
+  gamesInProgress: number
+  playersInQueue: number
+}> {
+  try {
+    // Get all lobby keys
+    const lobbyKeys = await redis.keys("lobby:*")
+    const playerLobbyKeys = await redis.keys("player:lobby:*")
+
+    let playersOnline = 0
+    let gamesInProgress = 0
+    let playersInQueue = 0
+
+    // Count unique players and game states
+    for (const key of lobbyKeys) {
+      if (key.includes(":game:")) continue // Skip game state keys
+
+      try {
+        const lobbyData = await redis.get(key)
+        if (!lobbyData) continue
+
+        const lobby = typeof lobbyData === "string" ? safeJsonParse(lobbyData, null) : lobbyData
+        if (!lobby) continue
+
+        const players =
+          typeof lobby.players === "string" ? safeJsonParse(lobby.players, []) : ensureArray(lobby.players)
+
+        const humanPlayers = players.filter((p: { isBot?: boolean }) => !p.isBot).length
+        playersOnline += humanPlayers
+
+        if (lobby.status === "playing") {
+          gamesInProgress++
+        } else if (lobby.status === "waiting") {
+          playersInQueue += humanPlayers
+        }
+      } catch (e) {
+        // Skip corrupted lobbies
+        continue
+      }
+    }
+
+    return { playersOnline, gamesInProgress, playersInQueue }
+  } catch (error) {
+    console.error("[v0] Error getting global stats:", error)
+    return { playersOnline: 0, gamesInProgress: 0, playersInQueue: 0 }
+  }
+}
+
 export const multiplayerService = {
   joinQueue,
   getLobby,
@@ -1103,6 +1152,7 @@ export const multiplayerService = {
   checkTurnTimeout,
   checkAndTerminateBotOnlyGame,
   voteRematch,
+  getGlobalStats,
 }
 
 function getNextClockwiseIndex(currentIndex: number): number {
