@@ -263,10 +263,6 @@ export default function HideAndSeekCards() {
         setRematchCountdown((prev) => {
           if (prev === null || prev <= 1) {
             clearInterval(interval)
-            // Time's up - auto leave game
-            if (prev === 1) {
-              handleLeaveGame()
-            }
             return 0
           }
           return prev - 1
@@ -486,12 +482,16 @@ export default function HideAndSeekCards() {
               disabled={hasVotedRematch || rematchCountdown === 0}
               className={`relative w-full px-8 py-4 rounded-2xl font-bold transition-all font-serif tracking-widest border shadow-xl ${
                 hasVotedRematch || rematchCountdown === 0
-                  ? "bg-amber-900/20 text-amber-500/60 border-amber-700/30 cursor-default"
+                  ? "bg-amber-900/20 text-amber-500/60 border-amber-700/30 cursor-default opacity-50"
                   : "bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 border-amber-700/50"
               }`}
             >
-              {hasVotedRematch ? "Waiting for others..." : "Play Again (Same Players)"}
-              {voterAvatars.length > 0 && (
+              {rematchCountdown === 0
+                ? "Voting Closed"
+                : hasVotedRematch
+                  ? "Waiting for others..."
+                  : "Play Again (Same Players)"}
+              {voterAvatars.length > 0 && rematchCountdown !== 0 && (
                 <div className="absolute -top-2 -right-2 flex -space-x-2">
                   {voterAvatars.map((voter) => (
                     <img
@@ -529,6 +529,9 @@ export default function HideAndSeekCards() {
               </a>
             </div>
           </div>
+          {rematchCountdown === 0 && (
+            <p className="text-amber-500/70 text-sm mt-4 italic">Not enough votes to play again...</p>
+          )}
         </div>
       </div>
     )
