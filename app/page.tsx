@@ -740,24 +740,26 @@ export default function HideAndSeekCards() {
             )}
           </div>
 
-          <div className="flex justify-center items-center gap-2 sm:gap-3 md:gap-4">
-            {cards.map((card) => {
-              const cardOwner = players.find((p) => p.id === card.ownerId)
-              return (
-                <CardComponent
-                  key={card.id}
-                  card={card}
-                  totalCards={cards.length}
-                  canFlip={
-                    (phase === "select_card" || phase === "select_target") &&
-                    players[currentPlayerIndex]?.id === playerId &&
-                    (!!localSelectedTarget || !!targetPlayerId)
-                  }
-                  onFlip={() => handlePickCard(card.id)}
-                  playerAvatar={cardOwner?.avatar}
-                />
-              )
-            })}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 md:gap-4">
+              {cards.map((card) => {
+                const cardOwner = players.find((p) => p.id === card.ownerId)
+                return (
+                  <CardComponent
+                    key={card.id}
+                    card={card}
+                    totalCards={cards.length}
+                    canFlip={
+                      (phase === "select_card" || phase === "select_target") &&
+                      players[currentPlayerIndex]?.id === playerId &&
+                      (!!localSelectedTarget || !!targetPlayerId)
+                    }
+                    onFlip={() => handlePickCard(card.id)}
+                    playerAvatar={cardOwner?.avatar}
+                  />
+                )
+              })}
+            </div>
           </div>
         </div>
 
