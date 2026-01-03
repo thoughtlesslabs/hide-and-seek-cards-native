@@ -307,12 +307,17 @@ export default function Home() {
       setHasVotedRematch(false)
 
       try {
-        const state = await pollGameState(playerId)
-        if (state && Array.isArray(state.players) && Array.isArray(state.cards)) {
-          lastVersionRef.current = state.version
-          setSharedGameState(state)
+        const result = await pollGameState(playerId)
+        console.log("[v0] handleGameStart pollGameState result:", result)
+        if (result && result.state && Array.isArray(result.state.players) && Array.isArray(result.state.cards)) {
+          console.log("[v0] Setting sharedGameState with", result.state.players.length, "players")
+          lastVersionRef.current = result.state.version
+          setSharedGameState(result.state)
+        } else {
+          console.log("[v0] Invalid game state in handleGameStart:", result)
         }
-      } catch {
+      } catch (err) {
+        console.error("[v0] Error in handleGameStart:", err)
         // Will be fetched on next poll
       }
     },
