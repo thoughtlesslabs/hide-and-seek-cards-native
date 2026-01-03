@@ -500,28 +500,22 @@ export async function leaveLobby(playerId: string): Promise<void> {
   const sanitizedId = sanitizeId(playerId)
   if (!sanitizedId) return
 
-  // Get the lobby ID FIRST before removing anything
   let lobbyId: string | null = null
   try {
     lobbyId = await getPlayerLobbyId(sanitizedId)
+    console.log("[v0] leaveLobby - playerId:", sanitizedId, "lobbyId:", lobbyId)
   } catch (e) {
-    console.log("[v0] Error getting player lobby id during leave:", e)
+    console.log("[v0] Error getting player lobby ID during leave:", e)
   }
 
-  // Now remove the player-to-lobby mapping
+  // Always try to remove player mapping
   try {
     await removePlayerLobby(sanitizedId)
   } catch (e) {
     console.log("[v0] Error removing player lobby mapping:", e)
-    // Force delete the key directly
-    try {
-      await redis.del(REDIS_KEYS.PLAYER_LOBBY(sanitizedId))
-    } catch (e2) {
-      console.log("[v0] Error force deleting player lobby key:", e2)
-    }
   }
 
-  // If no lobby, we're done
+  // If no lobby found, we're done
   if (!lobbyId) return
 
   let lobby: Lobby | null = null
@@ -529,15 +523,17 @@ export async function leaveLobby(playerId: string): Promise<void> {
     lobby = await getLobbyById(lobbyId)
   } catch (e) {
     console.log("[v0] Error getting lobby during leave:", e)
-    return // Player mapping already cleared above
+    return
   }
 
   if (!lobby) return
 
   if (lobby.status === "waiting") {
+    // Remove player from waiting lobby
     lobby.players = lobby.players.filter((p) => p.id !== sanitizedId)
 
     if (lobby.players.length === 0) {
+      // Delete empty lobby
       if (lobby.isPrivate && lobby.gameCode) {
         try {
           await redis.del(REDIS_KEYS.GAME_CODE(lobby.gameCode))
@@ -552,6 +548,7 @@ export async function leaveLobby(playerId: string): Promise<void> {
         console.log("[v0] Error deleting lobby:", e)
       }
     } else {
+      // Reassign host if needed
       if (lobby.hostId === sanitizedId && lobby.players.length > 0) {
         lobby.hostId = lobby.players[0].id
       }
@@ -560,6 +557,44 @@ export async function leaveLobby(playerId: string): Promise<void> {
       } catch (e) {
         console.log("[v0] Error saving lobby after leave:", e)
       }
+    }
+  } else if (lobby.status === "in-progress" || lobby.status === "starting") {
+    const gameState = await getGameState(lobbyId)
+    if (gameState) {
+      const playerIndex = gameState.players.findIndex((p) => p.id === sanitizedId)
+      if (playerIndex !== -1) {
+        const player = gameState.players[playerIndex]
+        // Convert player to bot
+        const botPlayer: LobbyPlayer = {
+          // Assuming LobbyPlayer structure is compatible or can be mapped
+          // In a real scenario, you might need a more robust conversion or a dedicated 'botified' player type
+          id: `bot-${sanitizedId}`, // Prefix with bot to avoid ID conflicts if the original player rejoins
+          username: `${player.name} (Bot)`, // Append (Bot) to the name
+          isBot: true,
+          isReady: true, // Bots are always ready
+          avatar: player.avatar, // Keep original avatar or assign a default bot avatar
+          connectedAt: Date.now(), // Reset connection time if treated as new bot
+          lastActivity: Date.now(),
+        }
+        gameState.players[playerIndex] = botPlayer as unknown as SharedPlayer // Cast needed if LobbyPlayer and SharedPlayer differ significantly
+        await saveGameState(lobbyId, gameState)
+
+        // Also update lobby players
+        const lobbyPlayerIndex = lobby.players.findIndex((p) => p.id === sanitizedId)
+        if (lobbyPlayerIndex !== -1) {
+          // Similarly, convert to a bot representation in the lobby list
+          lobby.players[lobbyPlayerIndex] = botPlayer
+          await saveLobby(lobby)
+        }
+      }
+    }
+
+    // Check if all human players have left
+    const humanPlayers = lobby.players.filter((p) => !p.isBot && !p.id.startsWith("bot-"))
+    if (humanPlayers.length === 0) {
+      // End the game
+      lobby.status = "finished"
+      await saveLobby(lobby)
     }
   }
 }
@@ -639,7 +674,7 @@ export async function checkDisconnectedPlayers(lobbyId: string): Promise<string[
 
   // Only check the current player, not all players
   const currentPlayer = state.players[state.currentPlayerIndex]
-  if (!currentPlayer || !currentPlayer.isHuman || currentPlayer.isEliminated) {
+  if (!currentPlayer || currentPlayer.isEliminated) {
     return []
   }
 

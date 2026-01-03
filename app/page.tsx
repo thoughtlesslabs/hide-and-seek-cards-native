@@ -36,7 +36,16 @@ const VISUAL_COUNTER_CLOCKWISE = [0, 1, 2, 3, 4, 5, 6, 7]
 const VISUAL_COUNTER_CLOCKWISE_4 = [0, 2, 4, 6] // S, W, N, E
 
 export default function Home() {
-  const [playerId] = useState(() => `player-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`)
+  const [playerId] = useState(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("hideseek-player-id")
+      if (stored) return stored
+      const newId = `player-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
+      localStorage.setItem("hideseek-player-id", newId)
+      return newId
+    }
+    return `player-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
+  })
   const [currentLobby, setCurrentLobby] = useState<Lobby | null>(null)
   const [showRulesModal, setShowRulesModal] = useState(false)
   const [showLeaveModal, setShowLeaveModal] = useState(false)
@@ -145,10 +154,13 @@ export default function Home() {
     (visualPosition: number) => {
       if (!sharedGameState) return null
       const visualOrder = selectedPlayerCount === 4 ? VISUAL_COUNTER_CLOCKWISE_4 : VISUAL_COUNTER_CLOCKWISE
-      // Ensure visualPosition is within bounds of the current player count's visual order
-      if (visualPosition >= visualOrder.length) return null
-      const gameIndex = visualOrder[visualPosition]
-      return sharedGameState.players[gameIndex] || null
+
+      // For 4 players: only positions 0, 2, 4, 6 have players
+      // For 8 players: all positions 0-7 have players
+      const indexInOrder = visualOrder.indexOf(visualPosition)
+      if (indexInOrder === -1) return null // This position doesn't have a player in this mode
+
+      return sharedGameState.players[indexInOrder] || null
     },
     [sharedGameState, selectedPlayerCount],
   )
@@ -156,12 +168,11 @@ export default function Home() {
   const getGameIndexForVisual = (visualPosition: number) => {
     if (localPlayerGameIndex === -1) return visualPosition
     const visualOrder = selectedPlayerCount === 4 ? VISUAL_COUNTER_CLOCKWISE_4 : VISUAL_COUNTER_CLOCKWISE
-    // Ensure visualPosition is within bounds of the current player count's visual order
-    if (visualPosition >= visualOrder.length) return -1
-    const visualStep = visualOrder.indexOf(visualPosition)
-    if (visualStep === -1) return -1 // Should not happen if visualPosition is valid
-    const targetTurnPosition = (myTurnPosition - visualStep + GAME_TURN_ORDER.length) % GAME_TURN_ORDER.length
-    return GAME_TURN_ORDER[targetTurnPosition]
+
+    const indexInOrder = visualOrder.indexOf(visualPosition)
+    if (indexInOrder === -1) return -1 // This position doesn't exist in current mode
+
+    return indexInOrder
   }
 
   const isVisualPositionActive = (visualPosition: number) => {
@@ -299,9 +310,18 @@ export default function Home() {
         return
       }
 
+      console.log("[v0] handleGameStart lobby:", {
+        maxPlayers: lobby.maxPlayers,
+        roundsToWin: lobby.roundsToWin,
+        playerCount: lobby.players?.length,
+        status: lobby.status,
+      })
+
       setCurrentLobby(lobby)
       setSelectedRoundsToWin(lobby.roundsToWin)
-      setSelectedPlayerCount(lobby.maxPlayers)
+      const playerCount = lobby.maxPlayers || lobby.players?.length || 4
+      console.log("[v0] Setting selectedPlayerCount to:", playerCount)
+      setSelectedPlayerCount(playerCount)
       setGameMode("playing")
       lastVersionRef.current = 0
       setHasVotedRematch(false)
