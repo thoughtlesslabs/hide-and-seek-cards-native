@@ -308,72 +308,69 @@ async function initializeGame(lobby: Lobby, maxPlayers: number): Promise<SharedG
 
 async function checkAndHandleLobbyTimer(lobby: Lobby, maxPlayers: number): Promise<Lobby> {
   if (lobby.status !== "waiting") {
-    console.log("[v0] checkAndHandleLobbyTimer: lobby not waiting, status is", lobby.status)
     return lobby
   }
 
   if (lobby.isPrivate) {
-    console.log("[v0] checkAndHandleLobbyTimer: skipping private lobby")
+    return lobby
+  }
+
+  if (!lobby.startTimer) {
     return lobby
   }
 
   const now = Date.now()
-  const timerExpired = lobby.startTimer && now >= lobby.startTimer
+  const timerExpired = now >= lobby.startTimer
 
-  console.log("[v0] checkAndHandleLobbyTimer:", {
-    lobbyId: lobby.id,
-    status: lobby.status,
-    startTimer: lobby.startTimer,
-    now,
-    timerExpired,
-    playerCount: lobby.players?.length,
-    maxPlayers,
-  })
-
-  if (timerExpired && lobby.players.length > 0) {
-    console.log("[v0] Timer expired! Starting game with", lobby.players.length, "players")
-
-    try {
-      const botsToAdd = maxPlayers - lobby.players.length
-      console.log("[v0] Need to add", botsToAdd, "bots")
-
-      for (let i = 0; i < botsToAdd; i++) {
-        const bot = generateBot(lobby.players)
-        console.log("[v0] Generated bot:", bot.username, bot.id)
-        lobby.players.push(bot)
-      }
-
-      console.log(
-        "[v0] All players after adding bots:",
-        lobby.players.map((p) => ({ id: p.id, name: p.username, isBot: p.isBot })),
-      )
-
-      lobby.status = "starting"
-      lobby.startTimer = null
-
-      // Remove from waiting lobbies FIRST
-      await redis.zrem(REDIS_KEYS.WAITING_LOBBIES, lobby.id)
-
-      // This ensures if initializeGame fails, the bots are persisted
-      await saveLobby(lobby)
-      console.log("[v0] Saved lobby with bots, now initializing game...")
-
-      await initializeGame(lobby, maxPlayers)
-      console.log("[v0] Game initialized successfully")
-
-      lobby.status = "in-progress"
-      await saveLobby(lobby)
-      console.log("[v0] Lobby saved with status:", lobby.status)
-    } catch (error) {
-      console.error("[v0] ERROR in checkAndHandleLobbyTimer:", error)
-      // Reset to waiting so it can try again
-      lobby.status = "waiting"
-      lobby.startTimer = Date.now() + 5000 // Try again in 5 seconds
-      await saveLobby(lobby)
-    }
+  if (!timerExpired) {
+    return lobby
   }
 
-  return lobby
+  // Re-fetch lobby to get latest state (prevent race conditions)
+  const freshLobby = await getLobbyById(lobby.id)
+  if (!freshLobby || freshLobby.status !== "waiting") {
+    // Another request already started the game
+    return freshLobby || lobby
+  }
+
+  // We're the one to start the game
+  console.log(
+    "[v0] Timer expired, starting game with",
+    freshLobby.players.length,
+    "humans, adding bots to fill",
+    maxPlayers,
+  )
+
+  // Add bots
+  const botsNeeded = maxPlayers - freshLobby.players.length
+  for (let i = 0; i < botsNeeded; i++) {
+    const bot = generateBot(freshLobby.players)
+    freshLobby.players.push(bot)
+    console.log("[v0] Added bot:", bot.username)
+  }
+
+  // Mark as starting IMMEDIATELY to prevent other requests from also starting
+  freshLobby.status = "starting"
+  freshLobby.startTimer = null
+  await saveLobby(freshLobby)
+  await redis.zrem(REDIS_KEYS.WAITING_LOBBIES, freshLobby.id)
+
+  // Now initialize the game
+  try {
+    await initializeGame(freshLobby, maxPlayers)
+    freshLobby.status = "in-progress"
+    await saveLobby(freshLobby)
+    console.log("[v0] Game started successfully with", freshLobby.players.length, "players")
+  } catch (error) {
+    console.error("[v0] Failed to initialize game:", error)
+    // Reset to try again
+    freshLobby.status = "waiting"
+    freshLobby.startTimer = Date.now() + 5000
+    await saveLobby(freshLobby)
+    await redis.zadd(REDIS_KEYS.WAITING_LOBBIES, { score: Date.now(), member: freshLobby.id })
+  }
+
+  return freshLobby
 }
 
 export async function joinQueue(playerId: string, roundsToWin = 2, maxPlayers = 8): Promise<LobbyPlayer> {
@@ -472,7 +469,7 @@ export async function joinQueue(playerId: string, roundsToWin = 2, maxPlayers = 
   return player
 }
 
-export async function getLobby(playerId: string): Promise<Lobby | null> {
+export async function getLobby(playerId: string): Promise<(Lobby & { gameState?: SharedGameState }) | null> {
   const sanitizedId = sanitizeId(playerId)
   if (!sanitizedId) return null
 
@@ -485,8 +482,17 @@ export async function getLobby(playerId: string): Promise<Lobby | null> {
     return null
   }
 
-  const maxPlayers = lobby.maxPlayers || 8
-  lobby = await checkAndHandleLobbyTimer(lobby, maxPlayers)
+  if (lobby.status === "waiting" && !lobby.isPrivate) {
+    lobby = await checkAndHandleLobbyTimer(lobby, lobby.maxPlayers || 8)
+  }
+
+  if (lobby.status === "in-progress" || lobby.status === "starting") {
+    const gameState = await getGameState(lobby.id)
+    if (gameState) {
+      return { ...lobby, gameState }
+    }
+  }
+
   return lobby
 }
 

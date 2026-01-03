@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import type { Lobby, LobbyPlayer } from "@/types/multiplayer"
 import { ALLOWED_EMOJIS } from "@/types/multiplayer"
 import { joinMatchmaking, getLobbyStatus, sendEmojiReaction, leaveGame as leaveLobby } from "@/app/actions/multiplayer"
@@ -9,9 +9,9 @@ import LiveStats from "@/components/live-stats"
 interface MatchmakingScreenProps {
   playerId: string
   onGameStart: (lobby: Lobby) => void
-  roundsToWin: number // Added roundsToWin prop
-  maxPlayers: number // Added maxPlayers prop
-  onLeave: () => void // Added onLeave prop
+  roundsToWin: number
+  maxPlayers: number
+  onLeave: () => void
 }
 
 export default function MatchmakingScreen({
@@ -26,88 +26,105 @@ export default function MatchmakingScreen({
   const [timeRemaining, setTimeRemaining] = useState<number>(10)
   const [isLeaving, setIsLeaving] = useState(false)
   const [localEmoji, setLocalEmoji] = useState<string | null>(null)
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const gameStartedRef = useRef(false)
+  const hasLeftRef = useRef(false)
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
+
+  const handleGameStart = useCallback(
+    (lobbyData: Lobby) => {
+      if (gameStartedRef.current) return // Already started
+      gameStartedRef.current = true
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+        pollIntervalRef.current = null
+      }
+      onGameStart(lobbyData)
+    },
+    [onGameStart],
+  )
 
   useEffect(() => {
-    console.log("[v0] MatchmakingScreen mounted, joining matchmaking...")
+    let mounted = true
 
-    joinMatchmaking(playerId, roundsToWin, maxPlayers)
-      .then((player) => {
-        console.log("[v0] Joined matchmaking, player:", player)
-        setCurrentPlayer(player)
-      })
-      .catch((err) => {
-        console.error("[v0] Error joining matchmaking:", err)
-      })
-
-    const interval = setInterval(async () => {
+    const startPolling = async () => {
       try {
-        const lobbyStatus = await getLobbyStatus(playerId)
-        console.log(
-          "[v0] Polling lobby status:",
-          lobbyStatus?.status,
-          "timer:",
-          lobbyStatus?.startTimer,
-          "players:",
-          lobbyStatus?.players?.length,
-        )
-
-        if (lobbyStatus) {
-          setLobby(lobbyStatus)
-
-          if (lobbyStatus.status === "in-progress") {
-            console.log("[v0] Lobby is in-progress! Starting game...")
-            gameStartedRef.current = true
-            clearInterval(interval)
-            onGameStart(lobbyStatus)
-            return
-          }
-
-          if (lobbyStatus.startTimer) {
-            const remaining = Math.max(0, Math.ceil((lobbyStatus.startTimer - Date.now()) / 1000))
-            setTimeRemaining(remaining)
-          }
-        }
+        const player = await joinMatchmaking(playerId, roundsToWin, maxPlayers)
+        if (!mounted) return
+        setCurrentPlayer(player)
       } catch (err) {
-        console.error("[v0] Error polling lobby:", err)
+        console.error("[v0] Error joining matchmaking:", err)
+        return
       }
-    }, 500)
+
+      pollIntervalRef.current = setInterval(async () => {
+        if (!mounted || gameStartedRef.current || hasLeftRef.current) return
+
+        try {
+          const lobbyStatus = await getLobbyStatus(playerId)
+
+          if (!mounted || gameStartedRef.current || hasLeftRef.current) return
+
+          if (lobbyStatus) {
+            setLobby(lobbyStatus)
+
+            if (lobbyStatus.status === "in-progress" || lobbyStatus.status === "starting") {
+              if (lobbyStatus.gameState) {
+                console.log("[v0] Game ready! Players in game:", lobbyStatus.gameState.players?.length)
+                handleGameStart(lobbyStatus)
+                return
+              }
+            }
+
+            if (lobbyStatus.startTimer) {
+              const remaining = Math.max(0, Math.ceil((lobbyStatus.startTimer - Date.now()) / 1000))
+              setTimeRemaining(remaining)
+            }
+          }
+        } catch (err) {
+          console.error("[v0] Error polling lobby:", err)
+        }
+      }, 500)
+    }
+
+    startPolling()
 
     return () => {
-      clearInterval(interval)
-      if (!gameStartedRef.current) {
-        console.log("[v0] MatchmakingScreen unmounting without game start, leaving lobby...")
-        leaveLobby(playerId)
-      } else {
-        console.log("[v0] MatchmakingScreen unmounting after game start, NOT leaving lobby")
+      mounted = false
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+        pollIntervalRef.current = null
+      }
+      if (!gameStartedRef.current && !hasLeftRef.current) {
+        hasLeftRef.current = true
+        leaveLobby(playerId).catch(() => {})
       }
     }
-  }, [playerId, onGameStart, roundsToWin, maxPlayers])
+  }, [playerId, handleGameStart, roundsToWin, maxPlayers])
 
   const handleEmojiClick = async (emoji: string) => {
-    // Show locally immediately
     setLocalEmoji(emoji)
-    // Send to server
     await sendEmojiReaction(playerId, emoji)
-    // Clear local emoji after 5 seconds
     setTimeout(() => {
       setLocalEmoji(null)
     }, 5000)
   }
 
   const handleLeaveQueue = async () => {
+    if (hasLeftRef.current || gameStartedRef.current) return
+    hasLeftRef.current = true
     setIsLeaving(true)
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current)
+      pollIntervalRef.current = null
+    }
     await leaveLobby(playerId)
     onLeave()
   }
 
   const getPlayerEmoji = (pId: string): string | null => {
-    // Local emoji takes priority for current player
     if (pId === playerId && localEmoji) {
       return localEmoji
     }
-    // Check lobby reactions
     if (lobby?.reactions && lobby.reactions[pId]) {
       const reaction = lobby.reactions[pId]
       const age = Date.now() - reaction.timestamp
