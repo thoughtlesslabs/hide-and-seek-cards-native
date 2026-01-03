@@ -960,6 +960,7 @@ async function processAfterElimination(state: SharedGameState): Promise<SharedGa
         state.seriesWinnerId = winner.id
         state.roundWinnerId = winner.id
         state.lastMessage = `${winner.name} wins the series!`
+        // Lobby stays "in-progress" while players are on end screen
       } else {
         // Round is over, but series continues
         state.phase = "round_end"

@@ -454,7 +454,11 @@ export default function HideAndSeekCards() {
 
   const handlePlayAgain = useCallback(async () => {
     if (currentLobby) {
-      await sendHeartbeat(playerId)
+      try {
+        await leaveGame(playerId)
+      } catch (e) {
+        console.error("[v0] Error leaving game:", e)
+      }
     }
     setShowLeaveModal(false)
     setSharedGameState(null)
