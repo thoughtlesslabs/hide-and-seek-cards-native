@@ -12,6 +12,7 @@ export const REDIS_KEYS = {
   PLAYER_INFO: (id: string) => `player:info:${id}`,
   WAITING_LOBBIES: "lobbies:waiting",
   GAME_STATE: (id: string) => `game:state:${id}`,
+  GAME_CODE: (code: string) => `gamecode:${code}`,
 } as const
 
 // TTL for Redis keys
@@ -23,19 +24,47 @@ export const REDIS_TTL = {
 
 export async function flushAllGameData(): Promise<{ success: boolean; message: string }> {
   try {
-    const patterns = ["lobby:*", "player:*", "game:*", "lobbies:*", "reactions:*"]
-    let deletedCount = 0
-
-    for (const pattern of patterns) {
-      const keys = await redis.keys(pattern)
-      if (keys.length > 0) {
-        await redis.del(...keys)
-        deletedCount += keys.length
-      }
-    }
-
-    return { success: true, message: `Deleted ${deletedCount} keys` }
+    // Use FLUSHDB command directly instead of iterating keys
+    await redis.flushdb()
+    return { success: true, message: "Database flushed successfully" }
   } catch (error) {
+    console.log("[v0] Flush error:", error)
     return { success: false, message: String(error) }
+  }
+}
+
+export async function safeGet<T>(key: string): Promise<T | null> {
+  try {
+    const result = await redis.get(key)
+    return result as T | null
+  } catch (error) {
+    console.log(`[v0] Safe get error for ${key}:`, error)
+    return null
+  }
+}
+
+export async function safeSet(key: string, value: unknown, ttl?: number): Promise<boolean> {
+  try {
+    if (ttl) {
+      await redis.set(key, value, { ex: ttl })
+    } else {
+      await redis.set(key, value)
+    }
+    return true
+  } catch (error) {
+    console.log(`[v0] Safe set error for ${key}:`, error)
+    return false
+  }
+}
+
+export async function safeDel(...keys: string[]): Promise<boolean> {
+  try {
+    if (keys.length > 0) {
+      await redis.del(...keys)
+    }
+    return true
+  } catch (error) {
+    console.log(`[v0] Safe del error:`, error)
+    return false
   }
 }

@@ -309,10 +309,19 @@ async function initializeGame(lobby: Lobby, maxPlayers: number): Promise<SharedG
 async function checkAndHandleLobbyTimer(lobby: Lobby, maxPlayers: number): Promise<Lobby> {
   if (lobby.status !== "waiting") return lobby
 
+  if (lobby.isPrivate) return lobby
+
   const now = Date.now()
   const timerExpired = lobby.startTimer && now >= lobby.startTimer
 
   if (timerExpired && lobby.players.length > 0) {
+    console.log(
+      "[v0] Timer expired, starting game with",
+      lobby.players.length,
+      "players, adding bots to fill",
+      maxPlayers,
+    )
+
     while (lobby.players.length < maxPlayers) {
       lobby.players.push(generateBot(lobby.players))
     }
@@ -324,6 +333,8 @@ async function checkAndHandleLobbyTimer(lobby: Lobby, maxPlayers: number): Promi
     await initializeGame(lobby, maxPlayers)
     lobby.status = "in-progress"
     await saveLobby(lobby)
+
+    console.log("[v0] Game started successfully, status:", lobby.status)
   }
 
   return lobby

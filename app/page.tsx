@@ -623,6 +623,7 @@ export default function Home() {
         onGameStart={handleGameStart}
         roundsToWin={selectedRoundsToWin}
         maxPlayers={selectedPlayerCount}
+        onLeave={() => setGameMode(null)}
       />
     )
   }
@@ -746,19 +747,23 @@ export default function Home() {
           <div className="flex flex-col gap-4 mb-8">
             <button
               onClick={() => setGameMode("hostPlayerSelection")}
-              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl"
+              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl flex flex-col items-center gap-1"
             >
-              Host Game
+              <span className="text-xl">Host Game</span>
+              <span className="text-sm font-normal text-amber-400/70 tracking-wide">
+                Create a private game and invite friends
+              </span>
             </button>
-            <p className="text-amber-500/60 text-sm -mt-2 mb-2">Create a private game and invite friends</p>
 
             <button
               onClick={() => setGameMode("joinWithCode")}
-              className="w-full px-12 py-5 bg-black/40 hover:bg-black/60 text-amber-200/80 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/30 shadow-xl"
+              className="w-full px-12 py-5 bg-black/40 hover:bg-black/60 text-amber-200/80 rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/30 shadow-xl flex flex-col items-center gap-1"
             >
-              Join Game
+              <span className="text-xl">Join Game</span>
+              <span className="text-sm font-normal text-amber-400/50 tracking-wide">
+                Enter a code to join a friend's game
+              </span>
             </button>
-            <p className="text-amber-500/60 text-sm -mt-2">Enter a code to join a friend's game</p>
           </div>
 
           <button

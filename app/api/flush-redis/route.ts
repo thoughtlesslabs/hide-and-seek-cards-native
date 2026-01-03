@@ -1,12 +1,20 @@
-import { flushAllGameData } from "@/lib/redis"
 import { NextResponse } from "next/server"
+import { redis } from "@/lib/redis"
 
 export async function POST() {
-  const result = await flushAllGameData()
-  return NextResponse.json(result)
+  try {
+    await redis.flushdb()
+    return NextResponse.json({ success: true, message: "Database flushed successfully" })
+  } catch (error) {
+    return NextResponse.json({ success: false, message: String(error) })
+  }
 }
 
 export async function GET() {
-  const result = await flushAllGameData()
-  return NextResponse.json(result)
+  try {
+    await redis.flushdb()
+    return NextResponse.json({ success: true, message: "Database flushed successfully" })
+  } catch (error) {
+    return NextResponse.json({ success: false, message: String(error) })
+  }
 }
