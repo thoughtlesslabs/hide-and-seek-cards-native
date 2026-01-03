@@ -300,6 +300,8 @@ export default function Home() {
       }
 
       setCurrentLobby(lobby)
+      setSelectedRoundsToWin(lobby.roundsToWin)
+      setSelectedPlayerCount(lobby.maxPlayers)
       setGameMode("playing")
       lastVersionRef.current = 0
       setHasVotedRematch(false)

@@ -1,9 +1,9 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import type { Lobby, LobbyPlayer } from "@/types/multiplayer"
 import { ALLOWED_EMOJIS } from "@/types/multiplayer"
-import { joinMatchmaking, getLobbyStatus, sendEmojiReaction, leaveLobby } from "@/app/actions/multiplayer"
+import { joinMatchmaking, getLobbyStatus, sendEmojiReaction, leaveGame as leaveLobby } from "@/app/actions/multiplayer"
 import LiveStats from "@/components/live-stats"
 
 interface MatchmakingScreenProps {
@@ -23,9 +23,11 @@ export default function MatchmakingScreen({
 }: MatchmakingScreenProps) {
   const [lobby, setLobby] = useState<Lobby | null>(null)
   const [currentPlayer, setCurrentPlayer] = useState<LobbyPlayer | null>(null)
-  const [timeRemaining, setTimeRemaining] = useState<number>(0)
+  const [timeRemaining, setTimeRemaining] = useState<number>(10)
   const [isLeaving, setIsLeaving] = useState(false)
   const [localEmoji, setLocalEmoji] = useState<string | null>(null)
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+  const gameStartedRef = useRef(false)
 
   useEffect(() => {
     console.log("[v0] MatchmakingScreen mounted, joining matchmaking...")
@@ -56,6 +58,7 @@ export default function MatchmakingScreen({
 
           if (lobbyStatus.status === "in-progress") {
             console.log("[v0] Lobby is in-progress! Starting game...")
+            gameStartedRef.current = true
             clearInterval(interval)
             onGameStart(lobbyStatus)
             return
@@ -72,9 +75,13 @@ export default function MatchmakingScreen({
     }, 500)
 
     return () => {
-      console.log("[v0] MatchmakingScreen unmounting, leaving lobby...")
       clearInterval(interval)
-      leaveLobby(playerId)
+      if (!gameStartedRef.current) {
+        console.log("[v0] MatchmakingScreen unmounting without game start, leaving lobby...")
+        leaveLobby(playerId)
+      } else {
+        console.log("[v0] MatchmakingScreen unmounting after game start, NOT leaving lobby")
+      }
     }
   }, [playerId, onGameStart, roundsToWin, maxPlayers])
 
