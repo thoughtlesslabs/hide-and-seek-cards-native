@@ -179,11 +179,12 @@ export default function PlayerSeat({
         </span>
         <span
           className={`
-            font-mono ${textSize} font-bold min-h-4 min-w-[2.5rem] text-center
-            ${showTimer ? (turnTimeRemaining <= 3 ? "text-red-500 animate-pulse" : "text-amber-500") : "invisible"}
+            font-mono ${textSize} font-bold h-4 w-[2.5rem] text-center
+            transition-opacity duration-150
+            ${showTimer ? (turnTimeRemaining && turnTimeRemaining <= 3 ? "text-red-500 animate-pulse opacity-100" : "text-amber-500 opacity-100") : "opacity-0"}
           `}
         >
-          {turnTimeRemaining ?? 0}s
+          {String(turnTimeRemaining ?? 0).padStart(2, "\u00A0")}s
         </span>
       </div>
 
