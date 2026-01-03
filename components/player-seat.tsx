@@ -76,11 +76,11 @@ export default function PlayerSeat({
   const isClickable = canBeTargeted && !player.isEliminated
 
   const isSmall = size === "small"
-  const containerHeight = isSmall ? "h-[110px] sm:h-[130px] md:h-[150px]" : "h-[150px] sm:h-[180px] md:h-[210px]"
-  const avatarSize = isSmall ? "w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16" : "w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24"
+  const containerHeight = isSmall ? "h-[120px] sm:h-[140px] md:h-[160px]" : "h-[150px] sm:h-[180px] md:h-[210px]"
+  const avatarSize = isSmall ? "w-14 h-14 sm:w-16 sm:h-16 md:w-20 md:h-20" : "w-18 h-18 sm:w-22 sm:h-22 md:w-24 md:h-24"
   const textSize = isSmall ? "text-[10px] sm:text-xs" : "text-xs sm:text-sm"
-  const eliminatedX = isSmall ? "text-xl sm:text-2xl" : "text-4xl sm:text-5xl"
-  const winTokenSize = isSmall ? "w-2 h-2 sm:w-2.5 sm:h-2.5" : "w-3 h-3 sm:w-4 sm:h-4"
+  const eliminatedX = isSmall ? "text-2xl sm:text-3xl" : "text-4xl sm:text-5xl"
+  const winTokenSize = isSmall ? "w-2.5 h-2.5 sm:w-3 sm:h-3" : "w-3 h-3 sm:w-4 sm:h-4"
   const emojiSize = isSmall ? "text-2xl sm:text-3xl" : "text-4xl sm:text-5xl"
   const emojiTop = isSmall ? "-top-6 sm:-top-8" : "-top-12 sm:-top-14"
 

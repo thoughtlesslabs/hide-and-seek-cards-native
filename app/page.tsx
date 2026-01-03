@@ -9,6 +9,7 @@ import MatchmakingScreen from "@/components/matchmaking-screen"
 import OfflineGame from "@/components/offline-game"
 import AnimatedCardPreview from "@/components/animated-card-preview"
 import LiveStats from "@/components/live-stats"
+import PrivateLobbyScreen from "@/components/private-lobby-screen"
 import {
   pollGameState,
   sendHeartbeat,
@@ -16,6 +17,8 @@ import {
   selectCard,
   startRematchVote,
   sendEmojiReaction,
+  hostPrivateLobby,
+  joinByCode,
 } from "./actions/multiplayer"
 
 const TURN_TIMEOUT_MS = 15000
@@ -27,18 +30,11 @@ const POLL_INTERVAL_MS = 500
 const GAME_TURN_ORDER = [0, 1, 2, 3, 4, 5, 6, 7]
 // Visual positions: 0=S, 1=SW, 2=W, 3=NW, 4=N, 5=NE, 6=E, 7=SE (counter-clockwise)
 const VISUAL_COUNTER_CLOCKWISE = [0, 1, 2, 3, 4, 5, 6, 7]
+// Visual positions for 4 players
+const VISUAL_COUNTER_CLOCKWISE_4 = [0, 2, 4, 6] // S, W, N, E
 
 export default function Home() {
-  const [playerId] = useState(() => {
-    if (typeof window !== "undefined") {
-      const stored = sessionStorage.getItem("hideseek_player_id")
-      if (stored) return stored
-      const newId = `player-${crypto.randomUUID().slice(0, 12)}`
-      sessionStorage.setItem("hideseek_player_id", newId)
-      return newId
-    }
-    return `player-${crypto.randomUUID().slice(0, 12)}`
-  })
+  const [playerId] = useState(() => `player-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`)
   const [currentLobby, setCurrentLobby] = useState<Lobby | null>(null)
   const [showRulesModal, setShowRulesModal] = useState(false)
   const [showLeaveModal, setShowLeaveModal] = useState(false)
@@ -48,13 +44,31 @@ export default function Home() {
   const [playerReactions, setPlayerReactions] = useState<Record<string, string>>({})
   const lastVersionRef = useRef<number>(0)
   const isMountedRef = useRef(true)
-  const [gameMode, setGameMode] = useState<"menu" | "roundSelection" | "matchmaking" | "playing" | "offline">("menu")
+  const [gameMode, setGameMode] = useState<
+    | "menu"
+    | "roundSelection"
+    | "playerSelection"
+    | "matchmaking"
+    | "playing"
+    | "offline"
+    | "hostOrJoin"
+    | "hostPlayerSelection"
+    | "hostRoundSelection"
+    | "privateLobby"
+    | "joinWithCode"
+  >("menu")
   const [selectedRoundsToWin, setSelectedRoundsToWin] = useState<number>(2) // Default to best of 3
+  const [selectedPlayerCount, setSelectedPlayerCount] = useState<number>(8)
   const [localSelectedTarget, setLocalSelectedTarget] = useState<string | null>(null)
   const [hasVotedRematch, setHasVotedRematch] = useState(false)
   const [rematchCountdown, setRematchCountdown] = useState<number | null>(null)
   const [gameStartedWhileAway, setGameStartedWhileAway] = useState(false)
   const [pendingGameLobby, setPendingGameLobby] = useState<Lobby | null>(null)
+  const [privateGameCode, setPrivateGameCode] = useState<string>("")
+  const [isHost, setIsHost] = useState(false)
+  const [joinCodeInput, setJoinCodeInput] = useState("")
+  const [joinError, setJoinError] = useState<string | null>(null)
+  const [isJoining, setIsJoining] = useState(false)
 
   const handleLeaveGame = useCallback(async () => {
     await sendHeartbeat(playerId)
@@ -125,18 +139,26 @@ export default function Home() {
   const localPlayerGameIndex = players.findIndex((p) => p.id === playerId)
   const myTurnPosition = GAME_TURN_ORDER.indexOf(localPlayerGameIndex)
 
-  const getVisualPlayer = (visualPosition: number) => {
-    if (localPlayerGameIndex === -1 || players.length === 0) return players[visualPosition]
-    const visualStep = VISUAL_COUNTER_CLOCKWISE.indexOf(visualPosition)
-    const targetTurnPosition = (myTurnPosition - visualStep + 8) % 8
-    const targetServerIndex = GAME_TURN_ORDER[targetTurnPosition]
-    return players[targetServerIndex]
-  }
+  const getVisualPlayer = useCallback(
+    (visualPosition: number) => {
+      if (!sharedGameState) return null
+      const visualOrder = selectedPlayerCount === 4 ? VISUAL_COUNTER_CLOCKWISE_4 : VISUAL_COUNTER_CLOCKWISE
+      // Ensure visualPosition is within bounds of the current player count's visual order
+      if (visualPosition >= visualOrder.length) return null
+      const gameIndex = visualOrder[visualPosition]
+      return sharedGameState.players[gameIndex] || null
+    },
+    [sharedGameState, selectedPlayerCount],
+  )
 
   const getGameIndexForVisual = (visualPosition: number) => {
     if (localPlayerGameIndex === -1) return visualPosition
-    const visualStep = VISUAL_COUNTER_CLOCKWISE.indexOf(visualPosition)
-    const targetTurnPosition = (myTurnPosition - visualStep + 8) % 8
+    const visualOrder = selectedPlayerCount === 4 ? VISUAL_COUNTER_CLOCKWISE_4 : VISUAL_COUNTER_CLOCKWISE
+    // Ensure visualPosition is within bounds of the current player count's visual order
+    if (visualPosition >= visualOrder.length) return -1
+    const visualStep = visualOrder.indexOf(visualPosition)
+    if (visualStep === -1) return -1 // Should not happen if visualPosition is valid
+    const targetTurnPosition = (myTurnPosition - visualStep + GAME_TURN_ORDER.length) % GAME_TURN_ORDER.length
     return GAME_TURN_ORDER[targetTurnPosition]
   }
 
@@ -145,18 +167,25 @@ export default function Home() {
   }
 
   useEffect(() => {
-    if (gameMode !== "playing" || !currentLobby) return
+    if (gameMode !== "playing" || !currentLobby || !playerId) return
+
+    const isMountedRef_inner = isMountedRef
 
     const pollGameStateInterval = setInterval(() => {
-      if (isMountedRef.current) {
-        pollGameState(playerId).then((state) => {
-          if (state && isMountedRef.current) {
-            if (!Array.isArray(state.players) || !Array.isArray(state.cards)) {
+      if (isMountedRef_inner.current) {
+        pollGameState(playerId).then((result) => {
+          if (result && isMountedRef_inner.current) {
+            const { state, reactions } = result
+            if ((state && !Array.isArray(state.players)) || (state && !Array.isArray(state.cards))) {
               return
             }
-            if (state.version !== lastVersionRef.current) {
+            if (state && state.version !== lastVersionRef.current) {
               lastVersionRef.current = state.version
               setSharedGameState(state)
+            }
+            // Update reactions
+            if (reactions && typeof reactions === "object") {
+              setPlayerReactions(reactions)
             }
           }
         })
@@ -287,6 +316,42 @@ export default function Home() {
     },
     [playerId],
   )
+
+  const handleHostGame = useCallback(async () => {
+    try {
+      const result = await hostPrivateLobby(playerId, selectedRoundsToWin, selectedPlayerCount)
+      setPrivateGameCode(result.gameCode)
+      setIsHost(true)
+      setGameMode("privateLobby")
+    } catch (error) {
+      console.error("[v0] Error hosting game:", error)
+    }
+  }, [playerId, selectedRoundsToWin, selectedPlayerCount])
+
+  const handleJoinWithCode = useCallback(async () => {
+    if (joinCodeInput.length !== 4) {
+      setJoinError("Please enter a 4-letter code")
+      return
+    }
+
+    setIsJoining(true)
+    setJoinError(null)
+
+    try {
+      const result = await joinByCode(playerId, joinCodeInput)
+      if (result.success) {
+        setPrivateGameCode(joinCodeInput.toUpperCase())
+        setIsHost(false)
+        setGameMode("privateLobby")
+      } else {
+        setJoinError(result.error || "Failed to join game")
+      }
+    } catch (error) {
+      setJoinError("Failed to join game")
+    } finally {
+      setIsJoining(false)
+    }
+  }, [playerId, joinCodeInput])
 
   const handleSelectTarget = useCallback(
     (targetId: string) => {
@@ -545,67 +610,256 @@ export default function Home() {
   }
 
   if (gameMode === "matchmaking") {
-    return <MatchmakingScreen playerId={playerId} onGameStart={handleGameStart} roundsToWin={selectedRoundsToWin} />
+    return (
+      <MatchmakingScreen
+        playerId={playerId}
+        onGameStart={handleGameStart}
+        roundsToWin={selectedRoundsToWin}
+        maxPlayers={selectedPlayerCount}
+      />
+    )
   }
 
-  if (gameMode === "roundSelection") {
+  // Add these new game mode renders before the menu render (after the gameStartedWhileAway check)
+
+  if (gameMode === "hostOrJoin") {
     return (
       <div className="min-h-screen w-full bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden p-4">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(217,119,6,0.03)_0%,_#050505_80%)] opacity-50"></div>
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(217,119,6,0.05)_0%,_#050505_70%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(180,83,9,0.08)_0%,_transparent_50%)]" />
 
-        <div className="relative z-10 text-center max-w-lg">
+        <div className="relative z-10 text-center max-w-lg w-full">
           <div className="mb-6">
             <LiveStats />
           </div>
 
-          <h1 className="font-serif text-3xl sm:text-4xl md:text-5xl text-amber-700 tracking-widest drop-shadow-[0_0_30px_rgba(180,83,9,0.6)]">
-            SELECT GAME MODE
+          <h1 className="font-serif text-4xl sm:text-5xl text-amber-700 tracking-widest mb-8 drop-shadow-[0_0_30px_rgba(180,83,9,0.6)]">
+            PRIVATE GAME
           </h1>
-          <p className="text-amber-100/70 font-serif text-base sm:text-lg mb-12 leading-relaxed">
-            How many rounds per game would you like to play?
-          </p>
 
           <div className="flex flex-col gap-4 mb-8">
             <button
-              onClick={() => {
-                setSelectedRoundsToWin(1)
-                setGameMode("matchmaking")
-              }}
+              onClick={() => setGameMode("hostPlayerSelection")}
               className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl"
             >
-              1 Round
-              <span className="block text-sm text-amber-400/60 font-normal mt-1">Quick Game</span>
+              Host Game
             </button>
+            <p className="text-amber-500/60 text-sm -mt-2 mb-2">Create a private game and invite friends</p>
+
             <button
-              onClick={() => {
-                setSelectedRoundsToWin(2)
-                setGameMode("matchmaking")
-              }}
-              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl"
+              onClick={() => setGameMode("joinWithCode")}
+              className="w-full px-12 py-5 bg-black/40 hover:bg-black/60 text-amber-200/80 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/30 shadow-xl"
             >
-              Best of 3<span className="block text-sm text-amber-400/60 font-normal mt-1">First to 2 wins</span>
+              Join Game
             </button>
-            <button
-              onClick={() => {
-                setSelectedRoundsToWin(3)
-                setGameMode("matchmaking")
-              }}
-              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl"
-            >
-              Best of 5<span className="block text-sm text-amber-400/60 font-normal mt-1">First to 3 wins</span>
-            </button>
+            <p className="text-amber-500/60 text-sm -mt-2">Enter a code to join a friend's game</p>
           </div>
 
           <button
             onClick={() => setGameMode("menu")}
-            className="w-full px-8 py-3 bg-black/40 hover:bg-black/60 text-amber-200/80 text-base rounded-xl font-bold transition-all font-serif tracking-widest border border-amber-900/30"
+            className="text-amber-500/60 hover:text-amber-400 font-serif tracking-wide transition-colors"
           >
-            Back
+            ← Back to Menu
           </button>
         </div>
       </div>
     )
   }
+
+  if (gameMode === "joinWithCode") {
+    return (
+      <div className="min-h-screen w-full bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden p-4">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(217,119,6,0.05)_0%,_#050505_70%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(180,83,9,0.08)_0%,_transparent_50%)]" />
+
+        <div className="relative z-10 text-center max-w-lg w-full">
+          <div className="mb-6">
+            <LiveStats />
+          </div>
+
+          <h1 className="font-serif text-4xl sm:text-5xl text-amber-700 tracking-widest mb-4 drop-shadow-[0_0_30px_rgba(180,83,9,0.6)]">
+            JOIN GAME
+          </h1>
+          <p className="text-amber-100/70 font-serif text-base mb-8">Enter the 4-letter code from your host</p>
+
+          <div className="bg-black/60 backdrop-blur-xl border border-amber-900/40 rounded-2xl p-8 mb-6">
+            <input
+              type="text"
+              value={joinCodeInput}
+              onChange={(e) => {
+                const val = e.target.value
+                  .toUpperCase()
+                  .replace(/[^A-Z]/g, "")
+                  .slice(0, 4)
+                setJoinCodeInput(val)
+                setJoinError(null)
+              }}
+              placeholder="XXXX"
+              className="w-full text-center text-4xl font-mono font-bold tracking-[0.5em] bg-black/50 border-2 border-amber-700/50 rounded-xl py-4 text-amber-500 placeholder:text-amber-900/50 focus:outline-none focus:border-amber-600"
+              maxLength={4}
+              autoFocus
+            />
+
+            {joinError && <p className="text-red-400 text-sm mt-3">{joinError}</p>}
+
+            <button
+              onClick={handleJoinWithCode}
+              disabled={joinCodeInput.length !== 4 || isJoining}
+              className="w-full mt-6 px-12 py-4 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-lg rounded-xl font-bold transition-all font-serif tracking-widest border border-amber-700/50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isJoining ? "Joining..." : "Join Game"}
+            </button>
+          </div>
+
+          <button
+            onClick={() => {
+              setJoinCodeInput("")
+              setJoinError(null)
+              setGameMode("hostOrJoin")
+            }}
+            className="text-amber-500/60 hover:text-amber-400 font-serif tracking-wide transition-colors"
+          >
+            ← Back
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (gameMode === "hostPlayerSelection") {
+    return (
+      <div className="min-h-screen w-full bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden p-4">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(217,119,6,0.05)_0%,_#050505_70%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(180,83,9,0.08)_0%,_transparent_50%)]" />
+
+        <div className="relative z-10 text-center max-w-lg w-full">
+          <div className="mb-6">
+            <LiveStats />
+          </div>
+
+          <h1 className="font-serif text-4xl sm:text-5xl text-amber-700 tracking-widest mb-4 drop-shadow-[0_0_30px_rgba(180,83,9,0.6)]">
+            HOST GAME
+          </h1>
+          <p className="text-amber-100/70 font-serif text-base mb-8">How many players?</p>
+
+          <div className="flex flex-col gap-4 mb-8">
+            <button
+              onClick={() => {
+                setSelectedPlayerCount(4)
+                setGameMode("hostRoundSelection")
+              }}
+              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl"
+            >
+              4 Players
+            </button>
+            <p className="text-amber-500/60 text-sm -mt-2 mb-2">Faster games, quicker rounds</p>
+
+            <button
+              onClick={() => {
+                setSelectedPlayerCount(8)
+                setGameMode("hostRoundSelection")
+              }}
+              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl"
+            >
+              8 Players
+            </button>
+            <p className="text-amber-500/60 text-sm -mt-2">Longer games, more chaos</p>
+          </div>
+
+          <button
+            onClick={() => setGameMode("hostOrJoin")}
+            className="text-amber-500/60 hover:text-amber-400 font-serif tracking-wide transition-colors"
+          >
+            ← Back
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (gameMode === "hostRoundSelection") {
+    return (
+      <div className="min-h-screen w-full bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden p-4">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(217,119,6,0.05)_0%,_#050505_70%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(180,83,9,0.08)_0%,_transparent_50%)]" />
+
+        <div className="relative z-10 text-center max-w-lg w-full">
+          <div className="mb-6">
+            <LiveStats />
+          </div>
+
+          <h1 className="font-serif text-4xl sm:text-5xl text-amber-700 tracking-widest mb-4 drop-shadow-[0_0_30px_rgba(180,83,9,0.6)]">
+            HOST GAME
+          </h1>
+          <p className="text-amber-100/70 font-serif text-base mb-2">Select game length</p>
+          <p className="text-amber-500/60 text-sm mb-8">{selectedPlayerCount} Players</p>
+
+          <div className="flex flex-col gap-4 mb-8">
+            <button
+              onClick={() => {
+                setSelectedRoundsToWin(1)
+                handleHostGame()
+              }}
+              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl"
+            >
+              Single Round
+            </button>
+
+            <button
+              onClick={() => {
+                setSelectedRoundsToWin(2)
+                handleHostGame()
+              }}
+              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl"
+            >
+              Best of 3
+            </button>
+
+            <button
+              onClick={() => {
+                setSelectedRoundsToWin(3)
+                handleHostGame()
+              }}
+              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl"
+            >
+              Best of 5
+            </button>
+          </div>
+
+          <button
+            onClick={() => setGameMode("hostPlayerSelection")}
+            className="text-amber-500/60 hover:text-amber-400 font-serif tracking-wide transition-colors"
+          >
+            ← Back
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (gameMode === "privateLobby") {
+    return (
+      <PrivateLobbyScreen
+        playerId={playerId}
+        gameCode={privateGameCode}
+        isHost={isHost}
+        maxPlayers={selectedPlayerCount}
+        roundsToWin={selectedRoundsToWin}
+        onGameStart={(lobby) => {
+          setCurrentLobby(lobby)
+          setGameMode("playing")
+        }}
+        onLeave={() => {
+          setPrivateGameCode("")
+          setIsHost(false)
+          setJoinCodeInput("")
+          setGameMode("menu")
+        }}
+      />
+    )
+  }
+
+  // ... existing code for other game modes ...
 
   if (gameMode === "menu") {
     return (
@@ -641,10 +895,16 @@ export default function Home() {
 
           <div className="flex flex-col gap-4 mb-12">
             <button
-              onClick={() => setGameMode("roundSelection")}
+              onClick={() => setGameMode("playerSelection")}
               className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl"
             >
               Find Match
+            </button>
+            <button
+              onClick={() => setGameMode("hostOrJoin")}
+              className="w-full px-12 py-4 bg-amber-800/30 hover:bg-amber-700/40 text-amber-200/90 text-lg rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/40 shadow-xl"
+            >
+              Host / Join Game
             </button>
             <button
               onClick={() => setGameMode("offline")}

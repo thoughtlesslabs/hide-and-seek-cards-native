@@ -23,14 +23,17 @@ function checkRateLimit(playerId: string): boolean {
   return true
 }
 
-export async function joinMatchmaking(playerId: string, roundsToWin = 2): Promise<LobbyPlayer> {
+export async function joinMatchmaking(playerId: string, roundsToWin = 2, maxPlayers = 8): Promise<LobbyPlayer> {
   if (!playerId || typeof playerId !== "string") {
     throw new Error("Invalid player ID")
   }
   if (roundsToWin !== 1 && roundsToWin !== 2 && roundsToWin !== 3) {
     roundsToWin = 2
   }
-  return await multiplayerService.joinQueue(playerId, roundsToWin)
+  if (maxPlayers !== 4 && maxPlayers !== 8) {
+    maxPlayers = 8
+  }
+  return await multiplayerService.joinQueue(playerId, roundsToWin, maxPlayers)
 }
 
 export async function getLobbyStatus(playerId: string): Promise<Lobby | null> {
@@ -138,10 +141,11 @@ export async function getGlobalStats(): Promise<{
   }
 }
 
-export async function pollGameState(playerId: string): Promise<SharedGameState | null> {
-  if (!playerId || typeof playerId !== "string") return null
-  const result = await multiplayerService.getSharedGameStateWithReactions(playerId)
-  return result.state
+export async function pollGameState(
+  playerId: string,
+): Promise<{ state: SharedGameState | null; reactions: Record<string, string> }> {
+  if (!playerId || typeof playerId !== "string") return { state: null, reactions: {} }
+  return await multiplayerService.getSharedGameStateWithReactions(playerId)
 }
 
 export async function selectTarget(playerId: string, targetId: string): Promise<SharedGameState | null> {
@@ -157,4 +161,41 @@ export async function selectCard(playerId: string, cardId: string, targetId?: st
 export async function startRematchVote(playerId: string): Promise<SharedGameState | null> {
   if (!playerId || typeof playerId !== "string") return null
   return await multiplayerService.voteRematch(playerId)
+}
+
+export async function hostPrivateLobby(
+  playerId: string,
+  roundsToWin = 2,
+  maxPlayers = 8,
+): Promise<{ player: LobbyPlayer; gameCode: string }> {
+  if (!playerId || typeof playerId !== "string") {
+    throw new Error("Invalid player ID")
+  }
+  if (roundsToWin !== 1 && roundsToWin !== 2 && roundsToWin !== 3) {
+    roundsToWin = 2
+  }
+  if (maxPlayers !== 4 && maxPlayers !== 8) {
+    maxPlayers = 8
+  }
+  return await multiplayerService.hostPrivateLobby(playerId, roundsToWin, maxPlayers)
+}
+
+export async function joinByCode(
+  playerId: string,
+  gameCode: string,
+): Promise<{ success: boolean; player?: LobbyPlayer; error?: string }> {
+  if (!playerId || typeof playerId !== "string") {
+    return { success: false, error: "Invalid player ID" }
+  }
+  if (!gameCode || typeof gameCode !== "string") {
+    return { success: false, error: "Invalid game code" }
+  }
+  return await multiplayerService.joinByCode(playerId, gameCode)
+}
+
+export async function hostStartGame(playerId: string): Promise<{ success: boolean; error?: string }> {
+  if (!playerId || typeof playerId !== "string") {
+    return { success: false, error: "Invalid player ID" }
+  }
+  return await multiplayerService.hostStartGame(playerId)
 }

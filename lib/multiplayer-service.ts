@@ -2,7 +2,6 @@ import { redis, REDIS_KEYS as IMPORTED_REDIS_KEYS, REDIS_TTL as IMPORTED_REDIS_T
 import type { Lobby, LobbyPlayer, SharedGameState, SharedPlayer, SharedCard } from "@/types/multiplayer"
 import { generateUsername } from "./username-generator"
 
-const MAX_PLAYERS = 8
 const LOBBY_TIMER_MS = 30000
 const TURN_TIMEOUT_MS = 8000
 const DISCONNECT_TIMEOUT_MS = 60000
@@ -14,7 +13,8 @@ const REVEAL_RESULT_DURATION_MS = 2000
 const FLIP_ANIMATION_DURATION_MS = 1000
 const ELIMINATION_ANIMATION_DURATION_MS = 1500
 const ROUND_END_DELAY_MS = 3000
-const COUNTER_CLOCKWISE_ORDER = [0, 4, 2, 6, 1, 5, 3, 7]
+const CLOCKWISE_ORDER_4 = [0, 3, 2, 1] // S(0) -> E(6->idx3) -> N(4->idx2) -> W(2->idx1) based on player indices 0,1,2,3 mapped to visual S,W,N,E
+const CLOCKWISE_ORDER_8 = [0, 7, 6, 5, 4, 3, 2, 1] // Clockwise: S -> SE -> E -> NE -> N -> NW -> W -> SW
 
 const REDIS_TTL = {
   ...IMPORTED_REDIS_TTL,
@@ -31,6 +31,7 @@ const REDIS_KEYS = {
   WAITING_LOBBIES: IMPORTED_REDIS_KEYS.WAITING_LOBBIES,
   PLAYER_ACTIVITY: (id: string) => `player:activity:${id}`,
   REACTIONS: (lobbyId: string) => `reactions:${lobbyId}`,
+  GAME_CODE: (code: string) => `gamecode:${code}`,
 }
 
 function isValidId(id: string): boolean {
@@ -250,7 +251,7 @@ async function getGameState(lobbyId: string): Promise<SharedGameState | null> {
   }
 }
 
-async function initializeGame(lobby: Lobby): Promise<SharedGameState> {
+async function initializeGame(lobby: Lobby, maxPlayers: number): Promise<SharedGameState> {
   const lobbyPlayers = ensureArray<LobbyPlayer>(lobby.players)
   if (lobbyPlayers.length === 0) {
     throw new Error("Cannot initialize game with no players")
@@ -305,14 +306,14 @@ async function initializeGame(lobby: Lobby): Promise<SharedGameState> {
   return state
 }
 
-async function checkAndHandleLobbyTimer(lobby: Lobby): Promise<Lobby> {
+async function checkAndHandleLobbyTimer(lobby: Lobby, maxPlayers: number): Promise<Lobby> {
   if (lobby.status !== "waiting") return lobby
 
   const now = Date.now()
   const timerExpired = lobby.startTimer && now >= lobby.startTimer
 
   if (timerExpired && lobby.players.length > 0) {
-    while (lobby.players.length < MAX_PLAYERS) {
+    while (lobby.players.length < maxPlayers) {
       lobby.players.push(generateBot(lobby.players))
     }
 
@@ -320,7 +321,7 @@ async function checkAndHandleLobbyTimer(lobby: Lobby): Promise<Lobby> {
     lobby.startTimer = null
 
     await redis.zrem(REDIS_KEYS.WAITING_LOBBIES, lobby.id)
-    await initializeGame(lobby)
+    await initializeGame(lobby, maxPlayers)
     lobby.status = "in-progress"
     await saveLobby(lobby)
   }
@@ -328,7 +329,7 @@ async function checkAndHandleLobbyTimer(lobby: Lobby): Promise<Lobby> {
   return lobby
 }
 
-export async function joinQueue(playerId: string, roundsToWin = 2): Promise<LobbyPlayer> {
+export async function joinQueue(playerId: string, roundsToWin = 2, maxPlayers = 8): Promise<LobbyPlayer> {
   const sanitizedId = sanitizeId(playerId)
   if (!sanitizedId) {
     throw new Error("Invalid player ID")
@@ -369,23 +370,18 @@ export async function joinQueue(playerId: string, roundsToWin = 2): Promise<Lobb
 
   for (const lobbyId of waitingLobbyIds) {
     const lobby = await getLobbyById(lobbyId as string)
-    if (
-      lobby &&
-      lobby.status === "waiting" &&
-      lobby.players.length < MAX_PLAYERS &&
-      lobby.roundsToWin === roundsToWin
-    ) {
+    if (lobby && lobby.status === "waiting" && lobby.players.length < maxPlayers && lobby.roundsToWin === roundsToWin) {
       const alreadyInLobby = lobby.players.some((p) => p.id === sanitizedId)
       if (alreadyInLobby) continue
 
       lobby.players.push(player)
       await setPlayerLobby(sanitizedId, lobby.id)
 
-      if (lobby.players.length >= MAX_PLAYERS) {
+      if (lobby.players.length >= maxPlayers) {
         lobby.status = "starting"
         lobby.startTimer = null
         await redis.zrem(REDIS_KEYS.WAITING_LOBBIES, lobby.id)
-        await initializeGame(lobby)
+        await initializeGame(lobby, maxPlayers)
         lobby.status = "in-progress"
       }
 
@@ -402,7 +398,7 @@ export async function joinQueue(playerId: string, roundsToWin = 2): Promise<Lobb
     status: "waiting",
     createdAt: Date.now(),
     startTimer: Date.now() + LOBBY_TIMER_MS,
-    maxPlayers: MAX_PLAYERS,
+    maxPlayers,
     reactions: {},
     roundsToWin,
   }
@@ -427,7 +423,8 @@ export async function getLobby(playerId: string): Promise<Lobby | null> {
     return null
   }
 
-  lobby = await checkAndHandleLobbyTimer(lobby)
+  const maxPlayers = lobby.maxPlayers || 8
+  lobby = await checkAndHandleLobbyTimer(lobby, maxPlayers)
   return lobby
 }
 
@@ -733,10 +730,10 @@ async function processAfterFlipping(state: SharedGameState): Promise<SharedGameS
 
   // Move to next player directly
   const currentIndex = state.currentPlayerIndex
-  let nextIndex = getNextClockwiseIndex(currentIndex)
+  let nextIndex = getNextClockwiseIndex(currentIndex, state.players.length)
   let attempts = 0
   while (state.players[nextIndex]?.isEliminated && attempts < state.players.length) {
-    nextIndex = getNextClockwiseIndex(nextIndex)
+    nextIndex = getNextClockwiseIndex(nextIndex, state.players.length)
     attempts++
   }
 
@@ -808,10 +805,10 @@ async function processAfterElimination(state: SharedGameState): Promise<SharedGa
 
   // Move to next player
   const currentIndex = state.currentPlayerIndex
-  let nextIndex = getNextClockwiseIndex(currentIndex)
+  let nextIndex = getNextClockwiseIndex(currentIndex, state.players.length)
   let attempts = 0
   while (state.players[nextIndex]?.isEliminated && attempts < state.players.length) {
-    nextIndex = getNextClockwiseIndex(nextIndex)
+    nextIndex = getNextClockwiseIndex(nextIndex, state.players.length)
     attempts++
   }
 
@@ -1185,12 +1182,16 @@ export const multiplayerService = {
   voteRematch,
   getGlobalStats,
   getSharedGameStateWithReactions,
+  hostPrivateLobby,
+  joinByCode,
+  hostStartGame,
 }
 
-function getNextClockwiseIndex(currentIndex: number): number {
-  const currentPosition = COUNTER_CLOCKWISE_ORDER.indexOf(currentIndex)
-  const nextPosition = (currentPosition + 1) % COUNTER_CLOCKWISE_ORDER.length
-  return COUNTER_CLOCKWISE_ORDER[nextPosition]
+function getNextClockwiseIndex(currentIndex: number, playerCount: number): number {
+  const order = playerCount === 4 ? CLOCKWISE_ORDER_4 : CLOCKWISE_ORDER_8
+  const currentPosition = order.indexOf(currentIndex)
+  const nextPosition = (currentPosition + 1) % order.length
+  return order[nextPosition]
 }
 
 async function cleanupGameResources(lobbyId: string, playerIds: string[]): Promise<void> {
@@ -1209,4 +1210,221 @@ async function cleanupGameResources(lobbyId: string, playerIds: string[]): Promi
   }
 
   await redis.zrem(REDIS_KEYS.WAITING_LOBBIES, lobbyId)
+}
+
+function generateGameCode(): string {
+  const letters = "ABCDEFGHJKLMNPQRSTUVWXYZ" // Excluding I and O to avoid confusion
+  let code = ""
+  for (let i = 0; i < 4; i++) {
+    code += letters.charAt(Math.floor(Math.random() * letters.length))
+  }
+  return code
+}
+
+export async function hostPrivateLobby(
+  playerId: string,
+  roundsToWin = 2,
+  maxPlayers = 8,
+): Promise<{ player: LobbyPlayer; gameCode: string }> {
+  const sanitizedId = sanitizeId(playerId)
+  if (!sanitizedId) {
+    throw new Error("Invalid player ID")
+  }
+
+  // Check if player is already in a lobby
+  const existingLobbyId = await getPlayerLobbyId(sanitizedId)
+  if (existingLobbyId) {
+    const existingLobby = await getLobbyById(existingLobbyId)
+    if (existingLobby) {
+      const gameState = await getGameState(existingLobby.id)
+      const gameIsFinished =
+        gameState?.phase === "game_over" || gameState?.phase === "series_end" || existingLobby.status === "finished"
+
+      if (!gameIsFinished) {
+        // Return existing lobby info if it's a private game they're hosting
+        if (existingLobby.isPrivate && existingLobby.hostId === sanitizedId && existingLobby.gameCode) {
+          const existingPlayer = existingLobby.players.find((p) => p.id === sanitizedId)
+          if (existingPlayer) {
+            return { player: existingPlayer, gameCode: existingLobby.gameCode }
+          }
+        }
+      }
+      await removePlayerLobby(sanitizedId)
+    } else {
+      await removePlayerLobby(sanitizedId)
+    }
+  }
+
+  let player = await getPlayerInfo(sanitizedId)
+  if (!player) {
+    player = createPlayer(sanitizedId)
+    await setPlayerInfo(sanitizedId, player)
+  } else {
+    player.lastActivity = Date.now()
+    await setPlayerInfo(sanitizedId, player)
+  }
+
+  // Generate unique game code
+  let gameCode = generateGameCode()
+  let attempts = 0
+  while (attempts < 10) {
+    const existingLobbyId = await redis.get(REDIS_KEYS.GAME_CODE(gameCode))
+    if (!existingLobbyId) break
+    gameCode = generateGameCode()
+    attempts++
+  }
+
+  const lobbyId = `lobby-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+
+  const newLobby: Lobby = {
+    id: lobbyId,
+    players: [player],
+    status: "waiting",
+    createdAt: Date.now(),
+    startTimer: null, // No auto-start timer for private games
+    maxPlayers,
+    reactions: {},
+    roundsToWin,
+    isPrivate: true,
+    gameCode,
+    hostId: sanitizedId,
+  }
+
+  await saveLobby(newLobby)
+  await setPlayerLobby(sanitizedId, lobbyId)
+  // Store game code -> lobby mapping
+  await redis.set(REDIS_KEYS.GAME_CODE(gameCode), lobbyId, { ex: REDIS_TTL.LOBBY })
+
+  return { player, gameCode }
+}
+
+export async function joinByCode(
+  playerId: string,
+  gameCode: string,
+): Promise<{ success: boolean; player?: LobbyPlayer; error?: string }> {
+  const sanitizedId = sanitizeId(playerId)
+  if (!sanitizedId) {
+    return { success: false, error: "Invalid player ID" }
+  }
+
+  const upperCode = gameCode.toUpperCase().trim()
+  if (upperCode.length !== 4) {
+    return { success: false, error: "Invalid game code" }
+  }
+
+  // Check if player is already in a lobby
+  const existingLobbyId = await getPlayerLobbyId(sanitizedId)
+  if (existingLobbyId) {
+    const existingLobby = await getLobbyById(existingLobbyId)
+    if (existingLobby) {
+      const gameState = await getGameState(existingLobby.id)
+      const gameIsFinished =
+        gameState?.phase === "game_over" || gameState?.phase === "series_end" || existingLobby.status === "finished"
+
+      if (!gameIsFinished) {
+        // If already in this game, return success
+        if (existingLobby.gameCode === upperCode) {
+          const existingPlayer = existingLobby.players.find((p) => p.id === sanitizedId)
+          if (existingPlayer) {
+            return { success: true, player: existingPlayer }
+          }
+        }
+        return { success: false, error: "Already in another game" }
+      }
+      await removePlayerLobby(sanitizedId)
+    } else {
+      await removePlayerLobby(sanitizedId)
+    }
+  }
+
+  // Find lobby by game code
+  const lobbyId = await redis.get(REDIS_KEYS.GAME_CODE(upperCode))
+  if (!lobbyId || typeof lobbyId !== "string") {
+    return { success: false, error: "Game not found" }
+  }
+
+  const lobby = await getLobbyById(lobbyId)
+  if (!lobby) {
+    return { success: false, error: "Game not found" }
+  }
+
+  if (lobby.status !== "waiting") {
+    return { success: false, error: "Game already started" }
+  }
+
+  if (lobby.players.length >= lobby.maxPlayers) {
+    return { success: false, error: "Game is full" }
+  }
+
+  // Check if already in lobby
+  const alreadyIn = lobby.players.some((p) => p.id === sanitizedId)
+  if (alreadyIn) {
+    const existingPlayer = lobby.players.find((p) => p.id === sanitizedId)
+    return { success: true, player: existingPlayer }
+  }
+
+  // Get or create player info
+  let player = await getPlayerInfo(sanitizedId)
+  if (!player) {
+    player = createPlayer(sanitizedId)
+    await setPlayerInfo(sanitizedId, player)
+  } else {
+    player.lastActivity = Date.now()
+    await setPlayerInfo(sanitizedId, player)
+  }
+
+  // Add player to lobby
+  lobby.players.push(player)
+  await saveLobby(lobby)
+  await setPlayerLobby(sanitizedId, lobby.id)
+
+  return { success: true, player }
+}
+
+export async function hostStartGame(playerId: string): Promise<{ success: boolean; error?: string }> {
+  const sanitizedId = sanitizeId(playerId)
+  if (!sanitizedId) {
+    return { success: false, error: "Invalid player ID" }
+  }
+
+  const lobbyId = await getPlayerLobbyId(sanitizedId)
+  if (!lobbyId) {
+    return { success: false, error: "Not in a lobby" }
+  }
+
+  const lobby = await getLobbyById(lobbyId)
+  if (!lobby) {
+    return { success: false, error: "Lobby not found" }
+  }
+
+  if (!lobby.isPrivate || lobby.hostId !== sanitizedId) {
+    return { success: false, error: "Only host can start the game" }
+  }
+
+  if (lobby.status !== "waiting") {
+    return { success: false, error: "Game already started" }
+  }
+
+  if (lobby.players.length < 2) {
+    return { success: false, error: "Need at least 2 players" }
+  }
+
+  // Fill remaining slots with bots
+  while (lobby.players.length < lobby.maxPlayers) {
+    lobby.players.push(generateBot(lobby.players))
+  }
+
+  lobby.status = "starting"
+  lobby.startTimer = null
+
+  // Clean up game code mapping
+  if (lobby.gameCode) {
+    await redis.del(REDIS_KEYS.GAME_CODE(lobby.gameCode))
+  }
+
+  await initializeGame(lobby, lobby.maxPlayers)
+  lobby.status = "in-progress"
+  await saveLobby(lobby)
+
+  return { success: true }
 }

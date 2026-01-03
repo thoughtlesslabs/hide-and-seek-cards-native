@@ -17,6 +17,9 @@ export interface Lobby {
   maxPlayers: number
   reactions?: Record<string, { emoji: string; timestamp: number }>
   roundsToWin: number
+  isPrivate?: boolean
+  gameCode?: string
+  hostId?: string
 }
 
 export interface EmojiReaction {

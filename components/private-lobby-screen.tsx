@@ -3,56 +3,61 @@
 import { useState, useEffect } from "react"
 import type { Lobby, LobbyPlayer } from "@/types/multiplayer"
 import { ALLOWED_EMOJIS } from "@/types/multiplayer"
-import { joinMatchmaking, getLobbyStatus, sendEmojiReaction, leaveLobby } from "@/app/actions/multiplayer"
+import { getLobbyStatus, sendEmojiReaction, leaveLobby, hostStartGame } from "@/app/actions/multiplayer"
 import LiveStats from "@/components/live-stats"
 
-interface MatchmakingScreenProps {
+interface PrivateLobbyScreenProps {
   playerId: string
+  gameCode: string
+  isHost: boolean
   onGameStart: (lobby: Lobby) => void
-  roundsToWin: number // Added roundsToWin prop
-  maxPlayers: number // Added maxPlayers prop
+  onLeave: () => void
+  maxPlayers: number
+  roundsToWin: number
 }
 
-export default function MatchmakingScreen({ playerId, onGameStart, roundsToWin, maxPlayers }: MatchmakingScreenProps) {
+export default function PrivateLobbyScreen({
+  playerId,
+  gameCode,
+  isHost,
+  onGameStart,
+  onLeave,
+  maxPlayers,
+  roundsToWin,
+}: PrivateLobbyScreenProps) {
   const [lobby, setLobby] = useState<Lobby | null>(null)
   const [currentPlayer, setCurrentPlayer] = useState<LobbyPlayer | null>(null)
-  const [timeRemaining, setTimeRemaining] = useState<number>(0)
   const [isLeaving, setIsLeaving] = useState(false)
+  const [isStarting, setIsStarting] = useState(false)
+  const [startError, setStartError] = useState<string | null>(null)
   const [localEmoji, setLocalEmoji] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
-    joinMatchmaking(playerId, roundsToWin, maxPlayers).then((player) => {
-      setCurrentPlayer(player)
-    })
-
     const interval = setInterval(async () => {
       const lobbyStatus = await getLobbyStatus(playerId)
       if (lobbyStatus) {
         setLobby(lobbyStatus)
 
-        if (lobbyStatus.status === "in-progress") {
-          onGameStart(lobbyStatus)
+        const player = lobbyStatus.players.find((p) => p.id === playerId)
+        if (player) {
+          setCurrentPlayer(player)
         }
 
-        if (lobbyStatus.startTimer) {
-          const remaining = Math.max(0, Math.ceil((lobbyStatus.startTimer - Date.now()) / 1000))
-          setTimeRemaining(remaining)
+        if (lobbyStatus.status === "in-progress") {
+          onGameStart(lobbyStatus)
         }
       }
     }, 500)
 
     return () => {
       clearInterval(interval)
-      leaveLobby(playerId)
     }
-  }, [playerId, onGameStart, roundsToWin, maxPlayers])
+  }, [playerId, onGameStart])
 
   const handleEmojiClick = async (emoji: string) => {
-    // Show locally immediately
     setLocalEmoji(emoji)
-    // Send to server
     await sendEmojiReaction(playerId, emoji)
-    // Clear local emoji after 5 seconds
     setTimeout(() => {
       setLocalEmoji(null)
     }, 5000)
@@ -61,15 +66,41 @@ export default function MatchmakingScreen({ playerId, onGameStart, roundsToWin, 
   const handleLeaveQueue = async () => {
     setIsLeaving(true)
     await leaveLobby(playerId)
-    window.location.reload()
+    onLeave()
+  }
+
+  const handleStartGame = async () => {
+    setIsStarting(true)
+    setStartError(null)
+    const result = await hostStartGame(playerId)
+    if (!result.success) {
+      setStartError(result.error || "Failed to start game")
+      setIsStarting(false)
+    }
+  }
+
+  const handleCopyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(gameCode)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Fallback for older browsers
+      const textArea = document.createElement("textarea")
+      textArea.value = gameCode
+      document.body.appendChild(textArea)
+      textArea.select()
+      document.execCommand("copy")
+      document.body.removeChild(textArea)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
   }
 
   const getPlayerEmoji = (pId: string): string | null => {
-    // Local emoji takes priority for current player
     if (pId === playerId && localEmoji) {
       return localEmoji
     }
-    // Check lobby reactions
     if (lobby?.reactions && lobby.reactions[pId]) {
       const reaction = lobby.reactions[pId]
       const age = Date.now() - reaction.timestamp
@@ -87,19 +118,12 @@ export default function MatchmakingScreen({ playerId, onGameStart, roundsToWin, 
     return "Best of 3"
   }
 
-  const getPlayerCountText = () => {
-    return `${maxPlayers} Players`
-  }
-
   if (!lobby || !currentPlayer) {
     return (
       <div className="min-h-screen w-full bg-[#050505] flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-amber-700 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-amber-100 font-serif text-xl">Finding players...</p>
-          <p className="text-amber-500/60 font-serif text-sm mt-2">
-            {getGameModeText()} • {getPlayerCountText()}
-          </p>
+          <p className="text-amber-100 font-serif text-xl">Setting up private game...</p>
         </div>
       </div>
     )
@@ -114,12 +138,26 @@ export default function MatchmakingScreen({ playerId, onGameStart, roundsToWin, 
           <LiveStats />
         </div>
 
-        <h1 className="font-serif text-3xl sm:text-4xl md:text-5xl text-amber-700 tracking-widest mb-4 drop-shadow-[0_0_30px_rgba(180,83,9,0.6)]">
-          FINDING MATCH
+        <h1 className="font-serif text-3xl sm:text-4xl md:text-5xl text-amber-700 tracking-widest mb-2 drop-shadow-[0_0_30px_rgba(180,83,9,0.6)]">
+          PRIVATE GAME
         </h1>
-        <p className="text-amber-500/60 font-serif mb-8">
-          {getGameModeText()} • {getPlayerCountText()}
+        <p className="text-amber-500/60 font-serif mb-4">
+          {getGameModeText()} • {maxPlayers} Players
         </p>
+
+        {/* Game Code Display */}
+        <div className="bg-amber-900/30 border-2 border-amber-700/50 rounded-2xl p-4 mb-6">
+          <p className="text-amber-100/80 text-sm mb-2 font-serif">Share this code with friends:</p>
+          <div className="flex items-center justify-center gap-3">
+            <span className="text-4xl sm:text-5xl font-mono font-bold text-amber-500 tracking-[0.3em]">{gameCode}</span>
+            <button
+              onClick={handleCopyCode}
+              className="px-3 py-2 bg-amber-800/50 hover:bg-amber-700/50 text-amber-200 rounded-lg text-sm transition-colors"
+            >
+              {copied ? "Copied!" : "Copy"}
+            </button>
+          </div>
+        </div>
 
         <div className="bg-black/90 backdrop-blur-xl border-2 border-amber-900/40 rounded-2xl p-6 sm:p-8 mb-6">
           <div className="flex items-center justify-between mb-6">
@@ -127,27 +165,30 @@ export default function MatchmakingScreen({ playerId, onGameStart, roundsToWin, 
               <p className="text-amber-100 text-lg font-serif mb-1">Your identity:</p>
               <p className="text-amber-500 text-2xl font-bold font-serif">{currentPlayer.username}</p>
             </div>
-            {lobby.startTimer && (
-              <div className="text-center">
-                <div className="text-amber-700 text-4xl font-bold font-mono">{timeRemaining}s</div>
-                <p className="text-amber-500/60 text-sm uppercase tracking-wide">Time Left</p>
+            {isHost && (
+              <div className="bg-amber-700/30 px-3 py-1 rounded-full">
+                <span className="text-amber-400 text-sm font-serif">HOST</span>
               </div>
             )}
           </div>
 
           <div className="mb-6">
             <p className="text-amber-100/80 text-sm mb-4 font-serif">
-              {lobby.status === "waiting" ? "Waiting for players... Bots will join if needed." : "Game starting soon!"}
+              {lobby.players.length}/{maxPlayers} players joined
+              {isHost ? " • Press Start when ready" : " • Waiting for host to start"}
             </p>
             <div
               className={`flex flex-col gap-2 sm:grid ${maxPlayers === 4 ? "sm:grid-cols-4" : "sm:grid-cols-4"} sm:gap-3 md:gap-4`}
             >
               {lobby.players.map((player) => {
                 const emoji = getPlayerEmoji(player.id)
+                const isHostPlayer = player.id === lobby.hostId
                 return (
                   <div
                     key={player.id}
-                    className="bg-black/60 border border-amber-900/30 rounded-xl p-2 sm:p-3 flex flex-row sm:flex-col items-center gap-3 sm:gap-0 relative"
+                    className={`bg-black/60 border rounded-xl p-2 sm:p-3 flex flex-row sm:flex-col items-center gap-3 sm:gap-0 relative ${
+                      isHostPlayer ? "border-amber-500/50" : "border-amber-900/30"
+                    }`}
                   >
                     <div className="relative sm:mb-2">
                       {emoji && (
@@ -160,6 +201,11 @@ export default function MatchmakingScreen({ playerId, onGameStart, roundsToWin, 
                         alt={player.username}
                         className="w-10 h-10 sm:w-12 sm:h-12 rounded-full border-2 border-amber-700 bg-white"
                       />
+                      {isHostPlayer && (
+                        <span className="absolute -bottom-1 -right-1 bg-amber-600 text-[8px] text-white px-1 rounded">
+                          HOST
+                        </span>
+                      )}
                     </div>
                     <div className="flex flex-col sm:items-center">
                       <p className="text-amber-100 font-serif text-xs sm:text-sm truncate max-w-[120px] sm:max-w-full sm:w-full sm:text-center">
@@ -200,13 +246,30 @@ export default function MatchmakingScreen({ playerId, onGameStart, roundsToWin, 
           </div>
         </div>
 
-        <button
-          onClick={handleLeaveQueue}
-          disabled={isLeaving}
-          className="w-full bg-red-900/40 hover:bg-red-800/60 text-red-200 py-3 rounded-xl font-bold transition-all font-serif tracking-wide border border-red-700/50 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isLeaving ? "Leaving..." : "Leave Queue"}
-        </button>
+        {startError && (
+          <div className="mb-4 p-3 bg-red-900/30 border border-red-700/50 rounded-xl">
+            <p className="text-red-300 text-sm">{startError}</p>
+          </div>
+        )}
+
+        <div className="flex flex-col sm:flex-row gap-3">
+          {isHost && (
+            <button
+              onClick={handleStartGame}
+              disabled={isStarting || lobby.players.length < 2}
+              className="flex-1 bg-amber-700/60 hover:bg-amber-600/70 text-amber-100 py-3 rounded-xl font-bold transition-all font-serif tracking-wide border border-amber-600/50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isStarting ? "Starting..." : lobby.players.length < 2 ? "Need 2+ Players" : "Start Game"}
+            </button>
+          )}
+          <button
+            onClick={handleLeaveQueue}
+            disabled={isLeaving}
+            className={`${isHost ? "flex-1" : "w-full"} bg-red-900/40 hover:bg-red-800/60 text-red-200 py-3 rounded-xl font-bold transition-all font-serif tracking-wide border border-red-700/50 disabled:opacity-50 disabled:cursor-not-allowed`}
+          >
+            {isLeaving ? "Leaving..." : "Leave Game"}
+          </button>
+        </div>
       </div>
     </div>
   )
