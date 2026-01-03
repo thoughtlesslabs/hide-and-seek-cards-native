@@ -333,6 +333,31 @@ async function checkAndHandleLobbyTimer(lobby: Lobby, maxPlayers: number): Promi
     return freshLobby || lobby
   }
 
+  // Players who left will have their mapping removed or pointing elsewhere
+  const verifiedPlayers: LobbyPlayer[] = []
+  for (const player of freshLobby.players) {
+    if (player.isBot) {
+      verifiedPlayers.push(player)
+      continue
+    }
+    const playerLobbyId = await getPlayerLobbyId(player.id)
+    if (playerLobbyId === freshLobby.id) {
+      verifiedPlayers.push(player)
+    } else {
+      console.log("[v0] Player", player.username, "left lobby, excluding from game")
+    }
+  }
+
+  const humanPlayers = verifiedPlayers.filter((p) => !p.isBot)
+  if (humanPlayers.length === 0) {
+    console.log("[v0] No human players remain, deleting lobby")
+    await deleteLobby(freshLobby.id)
+    await redis.zrem(REDIS_KEYS.WAITING_LOBBIES, freshLobby.id)
+    return freshLobby
+  }
+
+  freshLobby.players = verifiedPlayers
+
   // We're the one to start the game
   console.log(
     "[v0] Timer expired, starting game with",
@@ -1598,17 +1623,30 @@ export async function hostStartGame(playerId: string): Promise<{ success: boolea
     return { success: false, error: "Game already started" }
   }
 
-  if (lobby.players.length < 2) {
-    return { success: false, error: "Need at least 2 players" }
+  const verifiedPlayers: LobbyPlayer[] = []
+  for (const player of lobby.players) {
+    if (player.isBot) {
+      verifiedPlayers.push(player)
+      continue
+    }
+    const playerLobbyId = await getPlayerLobbyId(player.id)
+    if (playerLobbyId === lobby.id) {
+      verifiedPlayers.push(player)
+    } else {
+      console.log("[v0] Player", player.username, "left private lobby, excluding from game")
+    }
+  }
+
+  lobby.players = verifiedPlayers
+
+  if (lobby.players.length < 1) {
+    return { success: false, error: "No players in lobby" }
   }
 
   // Fill remaining slots with bots
   while (lobby.players.length < lobby.maxPlayers) {
     lobby.players.push(generateBot(lobby.players))
   }
-
-  lobby.status = "starting"
-  lobby.startTimer = null
 
   // Clean up game code mapping
   if (lobby.gameCode) {
@@ -1620,4 +1658,9 @@ export async function hostStartGame(playerId: string): Promise<{ success: boolea
   await saveLobby(lobby)
 
   return { success: true }
+}
+
+async function deleteLobby(lobbyId: string): Promise<void> {
+  await redis.del(REDIS_KEYS.LOBBY(lobbyId))
+  await redis.zrem(REDIS_KEYS.WAITING_LOBBIES, lobbyId)
 }
