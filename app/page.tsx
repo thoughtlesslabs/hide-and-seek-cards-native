@@ -20,6 +20,7 @@ import {
   hostPrivateLobby,
   joinByCode,
   getLobbyStatus, // Import getLobbyStatus
+  joinMatchmaking, // Import joinMatchmaking
 } from "./actions/multiplayer"
 
 const TURN_TIMEOUT_MS = 15000
@@ -170,12 +171,10 @@ export default function Home() {
   useEffect(() => {
     if (gameMode !== "playing" || !currentLobby || !playerId) return
 
-    const isMountedRef_inner = isMountedRef
-
     const pollGameStateInterval = setInterval(() => {
-      if (isMountedRef_inner.current) {
+      if (isMountedRef.current) {
         pollGameState(playerId).then((result) => {
-          if (result && isMountedRef_inner.current) {
+          if (result && isMountedRef.current) {
             const { state, reactions } = result
             if ((state && !Array.isArray(state.players)) || (state && !Array.isArray(state.cards))) {
               return
@@ -626,7 +625,108 @@ export default function Home() {
     )
   }
 
+  if (gameMode === "playerSelection") {
+    return (
+      <div className="min-h-screen w-full bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden p-4">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(217,119,6,0.05)_0%,_#050505_70%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(180,83,9,0.08)_0%,_transparent_50%)]" />
+
+        <div className="relative z-10 text-center max-w-lg w-full">
+          <div className="mb-6">
+            <LiveStats />
+          </div>
+
+          <h1 className="font-serif text-4xl sm:text-5xl text-amber-700 tracking-widest mb-4 drop-shadow-[0_0_30px_rgba(180,83,9,0.6)]">
+            FIND MATCH
+          </h1>
+          <p className="text-amber-100/70 font-serif text-base mb-8">How many players?</p>
+
+          <div className="flex flex-col gap-4 mb-8">
+            <button
+              onClick={() => {
+                setSelectedPlayerCount(4)
+                setGameMode("roundSelection")
+              }}
+              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl"
+            >
+              4 Players
+            </button>
+            <p className="text-amber-500/60 text-sm -mt-2 mb-2">Faster games, quicker rounds</p>
+
+            <button
+              onClick={() => {
+                setSelectedPlayerCount(8)
+                setGameMode("roundSelection")
+              }}
+              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl"
+            >
+              8 Players
+            </button>
+            <p className="text-amber-500/60 text-sm -mt-2">Longer games, more chaos</p>
+          </div>
+
+          <button
+            onClick={() => setGameMode("menu")}
+            className="text-amber-500/60 hover:text-amber-400 font-serif tracking-wide transition-colors"
+          >
+            ← Back to Menu
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   // Add these new game mode renders before the menu render (after the gameStartedWhileAway check)
+
+  if (gameMode === "roundSelection") {
+    return (
+      <div className="min-h-screen w-full bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden p-4">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(217,119,6,0.05)_0%,_#050505_70%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(180,83,9,0.08)_0%,_transparent_50%)]" />
+
+        <div className="relative z-10 text-center max-w-lg w-full">
+          <div className="mb-6">
+            <LiveStats />
+          </div>
+
+          <h1 className="font-serif text-4xl sm:text-5xl text-amber-700 tracking-widest mb-4 drop-shadow-[0_0_30px_rgba(180,83,9,0.6)]">
+            FIND MATCH
+          </h1>
+          <p className="text-amber-100/70 font-serif text-base mb-8">
+            Playing with {selectedPlayerCount} players. How many rounds to win?
+          </p>
+
+          <div className="flex flex-col gap-4 mb-8">
+            {[1, 2, 3].map((rounds) => (
+              <button
+                key={rounds}
+                onClick={async () => {
+                  setSelectedRoundsToWin(rounds)
+                  setGameMode("matchmaking")
+                  try {
+                    await joinMatchmaking(playerId, rounds, selectedPlayerCount)
+                  } catch (error) {
+                    console.error("Failed to join matchmaking:", error)
+                    setGameMode("menu")
+                  }
+                }}
+                className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl"
+              >
+                {rounds === 1 ? "Single Round" : `Best of ${rounds * 2 - 1}`}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={() => setGameMode("playerSelection")}
+            className="text-amber-500/60 hover:text-amber-400 font-serif tracking-wide transition-colors"
+          >
+            ← Back to Player Selection
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   if (gameMode === "hostOrJoin") {
     return (
