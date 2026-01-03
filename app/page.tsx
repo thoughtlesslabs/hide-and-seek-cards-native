@@ -21,6 +21,7 @@ import {
   joinByCode,
   getLobbyStatus, // Import getLobbyStatus
   joinMatchmaking, // Import joinMatchmaking
+  leaveGame, // Import leaveGame
 } from "./actions/multiplayer"
 
 const TURN_TIMEOUT_MS = 15000
@@ -83,7 +84,11 @@ export default function Home() {
   const [isJoining, setIsJoining] = useState(false)
 
   const handleLeaveGame = useCallback(async () => {
-    await sendHeartbeat(playerId)
+    try {
+      await leaveGame(playerId)
+    } catch (e) {
+      console.error("[v0] Error leaving game:", e)
+    }
     setShowLeaveModal(false)
     // Reset all game state
     setSharedGameState(null)
@@ -94,7 +99,7 @@ export default function Home() {
     lastVersionRef.current = 0
     setLocalSelectedTarget(null)
     setHasVotedRematch(false)
-    setGameMode(null)
+    setGameMode("menu")
   }, [playerId])
 
   useEffect(() => {
@@ -152,27 +157,40 @@ export default function Home() {
 
   const getVisualPlayer = useCallback(
     (visualPosition: number) => {
-      if (!sharedGameState) return null
+      if (!sharedGameState || !sharedGameState.players.length) return null
+
+      const totalPlayers = sharedGameState.players.length
       const visualOrder = selectedPlayerCount === 4 ? VISUAL_COUNTER_CLOCKWISE_4 : VISUAL_COUNTER_CLOCKWISE
 
-      // For 4 players: only positions 0, 2, 4, 6 have players
-      // For 8 players: all positions 0-7 have players
+      // Check if this visual position is used in current player count mode
       const indexInOrder = visualOrder.indexOf(visualPosition)
-      if (indexInOrder === -1) return null // This position doesn't have a player in this mode
+      if (indexInOrder === -1) return null
 
-      return sharedGameState.players[indexInOrder] || null
+      // Find local player's position in the visual order
+      const localPlayerVisualIndex =
+        localPlayerGameIndex >= 0 && localPlayerGameIndex < totalPlayers ? localPlayerGameIndex : 0
+
+      // Rotate so local player appears at visual position 0 (bottom of screen)
+      const rotatedIndex = (indexInOrder + localPlayerVisualIndex) % totalPlayers
+
+      return sharedGameState.players[rotatedIndex] || null
     },
-    [sharedGameState, selectedPlayerCount],
+    [sharedGameState, selectedPlayerCount, localPlayerGameIndex],
   )
 
   const getGameIndexForVisual = (visualPosition: number) => {
-    if (localPlayerGameIndex === -1) return visualPosition
+    if (!sharedGameState || !sharedGameState.players.length) return -1
+
+    const totalPlayers = sharedGameState.players.length
     const visualOrder = selectedPlayerCount === 4 ? VISUAL_COUNTER_CLOCKWISE_4 : VISUAL_COUNTER_CLOCKWISE
 
     const indexInOrder = visualOrder.indexOf(visualPosition)
-    if (indexInOrder === -1) return -1 // This position doesn't exist in current mode
+    if (indexInOrder === -1) return -1
 
-    return indexInOrder
+    const localPlayerVisualIndex =
+      localPlayerGameIndex >= 0 && localPlayerGameIndex < totalPlayers ? localPlayerGameIndex : 0
+
+    return (indexInOrder + localPlayerVisualIndex) % totalPlayers
   }
 
   const isVisualPositionActive = (visualPosition: number) => {
