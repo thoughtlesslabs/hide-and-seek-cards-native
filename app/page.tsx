@@ -923,6 +923,11 @@ export default function HideAndSeekCards() {
                 setJoinCodeInput(val)
                 setJoinError(null)
               }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && joinCodeInput.length === 4 && !isJoining) {
+                  handleJoinWithCode()
+                }
+              }}
               placeholder="XXXX"
               className="w-full text-center text-4xl font-mono font-bold tracking-[0.5em] bg-black/50 border-2 border-amber-700/50 rounded-xl py-4 text-amber-500 placeholder:text-amber-900/50 focus:outline-none focus:border-amber-600"
               maxLength={4}
@@ -1440,7 +1445,7 @@ export default function HideAndSeekCards() {
             {cards.length <= 4 ? (
               <>
                 {/* Mobile: 2x2 layout for 4 or fewer cards */}
-                <div className="sm:hidden grid grid-cols-2 gap-3 pointer-events-auto">
+                <div className="sm:hidden grid grid-cols-2 gap-2 pointer-events-auto">
                   {cards.map((card) => (
                     <CardComponent
                       key={card.id}
@@ -1457,8 +1462,7 @@ export default function HideAndSeekCards() {
                     />
                   ))}
                 </div>
-                {/* Desktop/Tablet: 2x2 layout for 4 or fewer cards */}
-                <div className="hidden sm:grid grid-cols-2 gap-4 md:gap-6 pointer-events-auto">
+                <div className="hidden sm:grid grid-cols-4 gap-4 md:gap-6 pointer-events-auto">
                   {cards.map((card) => (
                     <CardComponent
                       key={card.id}

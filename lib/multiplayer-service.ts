@@ -13,8 +13,8 @@ const REVEAL_RESULT_DURATION_MS = 2000
 const FLIP_ANIMATION_DURATION_MS = 1000
 const ELIMINATION_ANIMATION_DURATION_MS = 1500
 const ROUND_END_DELAY_MS = 3000
-const CLOCKWISE_ORDER_4 = [0, 3, 2, 1] // S(0) -> E(6->idx3) -> N(4->idx2) -> W(2->idx1) based on player indices 0,1,2,3 mapped to visual S,W,N,E
-const CLOCKWISE_ORDER_8 = [0, 7, 6, 5, 4, 3, 2, 1] // Clockwise: S -> SE -> E -> NE -> N -> NW -> W -> SW
+const CLOCKWISE_ORDER_4 = [0, 1, 2, 3] // Clockwise: S -> W -> N -> E
+const CLOCKWISE_ORDER_8 = [0, 1, 2, 3, 4, 5, 6, 7] // Clockwise: S -> SW -> W -> NW -> N -> NE -> E -> SE
 
 const REDIS_TTL = {
   ...IMPORTED_REDIS_TTL,
