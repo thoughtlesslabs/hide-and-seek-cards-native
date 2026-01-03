@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import type { Lobby, LobbyPlayer } from "@/types/multiplayer"
 import { ALLOWED_EMOJIS } from "@/types/multiplayer"
-import { joinMatchmaking, getLobbyStatus, sendEmojiReaction, leaveGame as leaveLobby } from "@/app/actions/multiplayer"
+import { joinMatchmaking, getLobbyStatus, sendEmojiReaction, leaveLobby } from "@/app/actions/multiplayer"
 import LiveStats from "@/components/live-stats"
 
 interface MatchmakingScreenProps {
