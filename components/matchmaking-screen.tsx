@@ -28,27 +28,51 @@ export default function MatchmakingScreen({
   const [localEmoji, setLocalEmoji] = useState<string | null>(null)
 
   useEffect(() => {
-    joinMatchmaking(playerId, roundsToWin, maxPlayers).then((player) => {
-      setCurrentPlayer(player)
-    })
+    console.log("[v0] MatchmakingScreen mounted, joining matchmaking...")
+
+    joinMatchmaking(playerId, roundsToWin, maxPlayers)
+      .then((player) => {
+        console.log("[v0] Joined matchmaking, player:", player)
+        setCurrentPlayer(player)
+      })
+      .catch((err) => {
+        console.error("[v0] Error joining matchmaking:", err)
+      })
 
     const interval = setInterval(async () => {
-      const lobbyStatus = await getLobbyStatus(playerId)
-      if (lobbyStatus) {
-        setLobby(lobbyStatus)
+      try {
+        const lobbyStatus = await getLobbyStatus(playerId)
+        console.log(
+          "[v0] Polling lobby status:",
+          lobbyStatus?.status,
+          "timer:",
+          lobbyStatus?.startTimer,
+          "players:",
+          lobbyStatus?.players?.length,
+        )
 
-        if (lobbyStatus.status === "in-progress") {
-          onGameStart(lobbyStatus)
-        }
+        if (lobbyStatus) {
+          setLobby(lobbyStatus)
 
-        if (lobbyStatus.startTimer) {
-          const remaining = Math.max(0, Math.ceil((lobbyStatus.startTimer - Date.now()) / 1000))
-          setTimeRemaining(remaining)
+          if (lobbyStatus.status === "in-progress") {
+            console.log("[v0] Lobby is in-progress! Starting game...")
+            clearInterval(interval)
+            onGameStart(lobbyStatus)
+            return
+          }
+
+          if (lobbyStatus.startTimer) {
+            const remaining = Math.max(0, Math.ceil((lobbyStatus.startTimer - Date.now()) / 1000))
+            setTimeRemaining(remaining)
+          }
         }
+      } catch (err) {
+        console.error("[v0] Error polling lobby:", err)
       }
     }, 500)
 
     return () => {
+      console.log("[v0] MatchmakingScreen unmounting, leaving lobby...")
       clearInterval(interval)
       leaveLobby(playerId)
     }

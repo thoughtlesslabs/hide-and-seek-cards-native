@@ -702,6 +702,7 @@ export default function Home() {
               <button
                 key={rounds}
                 onClick={async () => {
+                  console.log(`[v0] User selected rounds=${rounds}, playerCount=${selectedPlayerCount}`)
                   setSelectedRoundsToWin(rounds)
                   setGameMode("matchmaking")
                   try {
