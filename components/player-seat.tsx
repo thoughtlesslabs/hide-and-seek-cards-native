@@ -76,8 +76,12 @@ export default function PlayerSeat({
   const isClickable = canBeTargeted && !player.isEliminated
 
   const isSmall = size === "small"
-  const containerHeight = isSmall ? "h-[120px] sm:h-[140px] md:h-[160px]" : "h-[150px] sm:h-[180px] md:h-[210px]"
-  const avatarSize = isSmall ? "w-14 h-14 sm:w-16 sm:h-16 md:w-20 md:h-20" : "w-18 h-18 sm:w-22 sm:h-22 md:w-24 md:h-24"
+  const containerHeight = isSmall
+    ? "h-[120px] sm:h-[140px] md:h-[140px]"
+    : "h-[150px] sm:h-[180px] md:h-[180px] lg:h-[210px]"
+  const avatarSize = isSmall
+    ? "w-14 h-14 sm:w-16 sm:h-16 md:w-16 md:h-16"
+    : "w-18 h-18 sm:w-20 sm:h-20 md:w-20 md:h-20 lg:w-24 lg:h-24"
   const textSize = isSmall ? "text-[10px] sm:text-xs" : "text-xs sm:text-sm"
   const eliminatedX = isSmall ? "text-2xl sm:text-3xl" : "text-4xl sm:text-5xl"
   const winTokenSize = isSmall ? "w-2.5 h-2.5 sm:w-3 sm:h-3" : "w-3 h-3 sm:w-4 sm:h-4"

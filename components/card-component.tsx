@@ -22,12 +22,18 @@ export default function CardComponent({
 }: CardComponentProps) {
   const isSmall = size === "small"
   const cardSize = isSmall
-    ? "w-12 h-18 sm:w-14 sm:h-20 md:w-16 md:h-24"
-    : "w-16 h-24 sm:w-20 sm:h-28 md:w-24 md:h-36 lg:w-28 lg:h-40"
-  const avatarSize = isSmall ? "w-7 h-7 sm:w-9 sm:h-9 md:w-10 md:h-10" : "w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14"
-  const skullSize = isSmall ? "text-sm sm:text-base md:text-lg" : "text-xl sm:text-2xl md:text-3xl"
-  const innerCircleSize = isSmall ? "w-4 h-4 sm:w-5 sm:h-5 md:w-7 md:h-7" : "w-8 h-8 sm:w-10 sm:h-10 md:w-12 md:h-12"
-  const innerDotSize = isSmall ? "w-2 h-2 sm:w-2.5 sm:h-2.5 md:w-3 md:h-3" : "w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6"
+    ? "w-12 h-18 sm:w-14 sm:h-20 md:w-14 md:h-20"
+    : "w-16 h-24 sm:w-20 sm:h-28 md:w-20 md:h-28 lg:w-28 lg:h-40"
+  const avatarSize = isSmall
+    ? "w-7 h-7 sm:w-9 sm:h-9 md:w-9 md:h-9"
+    : "w-10 h-10 sm:w-12 sm:h-12 md:w-12 md:h-12 lg:w-14 lg:h-14"
+  const skullSize = isSmall ? "text-sm sm:text-base md:text-base" : "text-xl sm:text-2xl md:text-2xl lg:text-3xl"
+  const innerCircleSize = isSmall
+    ? "w-4 h-4 sm:w-5 sm:h-5 md:w-5 md:h-5"
+    : "w-8 h-8 sm:w-10 sm:h-10 md:w-10 md:h-10 lg:w-12 lg:h-12"
+  const innerDotSize = isSmall
+    ? "w-2 h-2 sm:w-2.5 sm:h-2.5 md:w-2.5 md:h-2.5"
+    : "w-4 h-4 sm:w-5 sm:h-5 md:w-5 md:h-5 lg:w-6 lg:h-6"
 
   return (
     <button

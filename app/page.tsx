@@ -686,7 +686,7 @@ export default function HideAndSeekCards() {
         onGameStart={handleGameStart}
         roundsToWin={selectedRoundsToWin}
         maxPlayers={selectedPlayerCount}
-        onLeave={() => setGameMode(null)}
+        onLeave={() => setGameMode("menu")}
       />
     )
   }
