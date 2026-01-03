@@ -12,8 +12,8 @@ interface PrivateLobbyScreenProps {
   isHost: boolean
   onGameStart: (lobby: Lobby) => void
   onLeave: () => void
-  maxPlayers: number
-  roundsToWin: number
+  maxPlayers?: number
+  roundsToWin?: number
 }
 
 export default function PrivateLobbyScreen({
@@ -22,8 +22,8 @@ export default function PrivateLobbyScreen({
   isHost,
   onGameStart,
   onLeave,
-  maxPlayers,
-  roundsToWin,
+  maxPlayers: propMaxPlayers,
+  roundsToWin: propRoundsToWin,
 }: PrivateLobbyScreenProps) {
   const [lobby, setLobby] = useState<Lobby | null>(null)
   const [currentPlayer, setCurrentPlayer] = useState<LobbyPlayer | null>(null)
@@ -32,6 +32,9 @@ export default function PrivateLobbyScreen({
   const [startError, setStartError] = useState<string | null>(null)
   const [localEmoji, setLocalEmoji] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+
+  const maxPlayers = lobby?.maxPlayers || propMaxPlayers || 4
+  const roundsToWin = lobby?.roundsToWin || propRoundsToWin || 2
 
   useEffect(() => {
     const interval = setInterval(async () => {
@@ -85,7 +88,6 @@ export default function PrivateLobbyScreen({
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch {
-      // Fallback for older browsers
       const textArea = document.createElement("textarea")
       textArea.value = gameCode
       document.body.appendChild(textArea)
@@ -117,6 +119,8 @@ export default function PrivateLobbyScreen({
     if (roundsToWin === 3) return "Best of 5"
     return "Best of 3"
   }
+
+  const actuallyIsHost = lobby?.hostId === playerId
 
   if (!lobby || !currentPlayer) {
     return (
@@ -165,7 +169,7 @@ export default function PrivateLobbyScreen({
               <p className="text-amber-100 text-lg font-serif mb-1">Your identity:</p>
               <p className="text-amber-500 text-2xl font-bold font-serif">{currentPlayer.username}</p>
             </div>
-            {isHost && (
+            {actuallyIsHost && (
               <div className="bg-amber-700/30 px-3 py-1 rounded-full">
                 <span className="text-amber-400 text-sm font-serif">HOST</span>
               </div>
@@ -175,7 +179,7 @@ export default function PrivateLobbyScreen({
           <div className="mb-6">
             <p className="text-amber-100/80 text-sm mb-4 font-serif">
               {lobby.players.length}/{maxPlayers} players joined
-              {isHost ? " • Press Start when ready" : " • Waiting for host to start"}
+              {actuallyIsHost ? " • Press Start when ready" : " • Waiting for host to start"}
             </p>
             <div
               className={`flex flex-col gap-2 sm:grid ${maxPlayers === 4 ? "sm:grid-cols-4" : "sm:grid-cols-4"} sm:gap-3 md:gap-4`}
@@ -253,7 +257,7 @@ export default function PrivateLobbyScreen({
         )}
 
         <div className="flex flex-col sm:flex-row gap-3">
-          {isHost && (
+          {actuallyIsHost && (
             <button
               onClick={handleStartGame}
               disabled={isStarting || lobby.players.length < 2}
@@ -265,7 +269,7 @@ export default function PrivateLobbyScreen({
           <button
             onClick={handleLeaveQueue}
             disabled={isLeaving}
-            className={`${isHost ? "flex-1" : "w-full"} bg-red-900/40 hover:bg-red-800/60 text-red-200 py-3 rounded-xl font-bold transition-all font-serif tracking-wide border border-red-700/50 disabled:opacity-50 disabled:cursor-not-allowed`}
+            className={`${actuallyIsHost ? "flex-1" : "w-full"} bg-red-900/40 hover:bg-red-800/60 text-red-200 py-3 rounded-xl font-bold transition-all font-serif tracking-wide border border-red-700/50 disabled:opacity-50 disabled:cursor-not-allowed`}
           >
             {isLeaving ? "Leaving..." : "Leave Game"}
           </button>

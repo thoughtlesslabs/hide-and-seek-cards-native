@@ -441,16 +441,25 @@ export async function leaveLobby(playerId: string): Promise<void> {
     return
   }
 
+  await removePlayerLobby(sanitizedId)
+
   if (lobby.status === "waiting") {
     lobby.players = lobby.players.filter((p) => p.id !== sanitizedId)
-    await removePlayerLobby(sanitizedId)
 
     if (lobby.players.length === 0) {
+      if (lobby.isPrivate && lobby.gameCode) {
+        await redis.del(REDIS_KEYS.GAME_CODE(lobby.gameCode))
+      }
       await redis.del(REDIS_KEYS.LOBBY(lobbyId))
       await redis.zrem(REDIS_KEYS.WAITING_LOBBIES, lobbyId)
     } else {
+      if (lobby.hostId === sanitizedId && lobby.players.length > 0) {
+        lobby.hostId = lobby.players[0].id
+      }
       await saveLobby(lobby)
     }
+  } else if (lobby.status === "in-progress") {
+    // The game will continue, player is effectively disconnected
   }
 }
 

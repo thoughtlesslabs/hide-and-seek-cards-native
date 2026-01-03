@@ -19,6 +19,7 @@ import {
   sendEmojiReaction,
   hostPrivateLobby,
   joinByCode,
+  getLobbyStatus, // Import getLobbyStatus
 } from "./actions/multiplayer"
 
 const TURN_TIMEOUT_MS = 15000
@@ -342,6 +343,11 @@ export default function Home() {
       if (result.success) {
         setPrivateGameCode(joinCodeInput.toUpperCase())
         setIsHost(false)
+        const lobbyStatus = await getLobbyStatus(playerId)
+        if (lobbyStatus) {
+          setSelectedPlayerCount(lobbyStatus.maxPlayers || 4)
+          setSelectedRoundsToWin(lobbyStatus.roundsToWin || 2)
+        }
         setGameMode("privateLobby")
       } else {
         setJoinError(result.error || "Failed to join game")
