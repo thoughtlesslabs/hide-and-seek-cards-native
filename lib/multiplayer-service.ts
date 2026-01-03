@@ -385,18 +385,28 @@ export async function joinQueue(playerId: string, roundsToWin = 2, maxPlayers = 
   if (existingLobbyId) {
     const existingLobby = await getLobbyById(existingLobbyId)
     if (existingLobby) {
-      const gameState = await getGameState(existingLobby.id)
-      const gameIsFinished =
-        gameState?.phase === "game_over" || gameState?.phase === "series_end" || existingLobby.status === "finished"
+      const existingPlayer = existingLobby.players.find((p) => p.id === sanitizedId)
 
-      if (!gameIsFinished) {
-        const existingPlayer = existingLobby.players.find((p) => p.id === sanitizedId)
-        if (existingPlayer) {
+      // If player is NOT in the lobby's player list, they left - clean up the stale mapping
+      if (!existingPlayer) {
+        console.log(`[v0] Player ${sanitizedId} has stale lobby mapping - cleaning up`)
+        await removePlayerLobby(sanitizedId)
+      } else {
+        // Player IS in the lobby - check if game is finished
+        const gameState = await getGameState(existingLobby.id)
+        const gameIsFinished =
+          gameState?.phase === "game_over" || gameState?.phase === "series_end" || existingLobby.status === "finished"
+
+        if (!gameIsFinished) {
+          // Game still active and player is in it - return them to it
+          console.log(`[v0] Player ${sanitizedId} rejoining existing lobby ${existingLobbyId}`)
           return existingPlayer
         }
+        // Game is finished, clean up
+        await removePlayerLobby(sanitizedId)
       }
-      await removePlayerLobby(sanitizedId)
     } else {
+      // Lobby doesn't exist anymore, clean up stale mapping
       await removePlayerLobby(sanitizedId)
     }
   }

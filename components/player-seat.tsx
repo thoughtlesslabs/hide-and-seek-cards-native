@@ -179,7 +179,7 @@ export default function PlayerSeat({
         </span>
         <span
           className={`
-            font-mono ${textSize} font-bold h-4
+            font-mono ${textSize} font-bold min-h-4 min-w-[2.5rem] text-center
             ${showTimer ? (turnTimeRemaining <= 3 ? "text-red-500 animate-pulse" : "text-amber-500") : "invisible"}
           `}
         >
