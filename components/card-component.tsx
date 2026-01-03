@@ -9,9 +9,17 @@ interface CardComponentProps {
   onFlip: () => void
   playerAvatar?: string
   size?: "normal" | "small"
+  className?: string
 }
 
-export default function CardComponent({ card, canFlip, onFlip, playerAvatar, size = "normal" }: CardComponentProps) {
+export default function CardComponent({
+  card,
+  canFlip,
+  onFlip,
+  playerAvatar,
+  size = "normal",
+  className = "",
+}: CardComponentProps) {
   const isSmall = size === "small"
   const cardSize = isSmall
     ? "w-14 h-20 sm:w-16 sm:h-24 md:w-18 md:h-26"
@@ -31,6 +39,7 @@ export default function CardComponent({ card, canFlip, onFlip, playerAvatar, siz
         rounded-lg sm:rounded-xl
         transition-all duration-500
         ${canFlip && !card.isRevealed ? "hover:scale-110 hover:-translate-y-2 cursor-pointer" : "cursor-default"}
+        ${className}
       `}
       style={{
         perspective: "1000px",

@@ -1247,7 +1247,6 @@ async function getGlobalStats(): Promise<{
   try {
     // Get all lobby keys
     const lobbyKeys = await redis.keys("lobby:*")
-    const playerLobbyKeys = await redis.keys("player:lobby:*")
 
     let playersOnline = 0
     let gamesInProgress = 0
@@ -1270,7 +1269,7 @@ async function getGlobalStats(): Promise<{
         const humanPlayers = players.filter((p: { isBot?: boolean }) => !p.isBot).length
         playersOnline += humanPlayers
 
-        if (lobby.status === "playing") {
+        if (lobby.status === "in-progress") {
           gamesInProgress++
         } else if (lobby.status === "waiting") {
           playersInQueue += humanPlayers
@@ -1285,6 +1284,44 @@ async function getGlobalStats(): Promise<{
   } catch (error) {
     console.error("[v0] Error getting global stats:", error)
     return { playersOnline: 0, gamesInProgress: 0, playersInQueue: 0 }
+  }
+}
+
+async function getLobbiesWaitingByConfig(): Promise<{
+  fourPlayer: { single: number; bestOf3: number; bestOf5: number }
+  eightPlayer: { single: number; bestOf3: number; bestOf5: number }
+}> {
+  try {
+    const waitingLobbyIds = await redis.zrange(REDIS_KEYS.WAITING_LOBBIES, 0, -1)
+
+    const stats = {
+      fourPlayer: { single: 0, bestOf3: 0, bestOf5: 0 },
+      eightPlayer: { single: 0, bestOf3: 0, bestOf5: 0 },
+    }
+
+    for (const lobbyId of waitingLobbyIds) {
+      const lobby = await getLobbyById(lobbyId as string)
+      if (!lobby || lobby.status !== "waiting" || lobby.isPrivate) continue
+
+      const humanCount = lobby.players.filter((p) => !p.isBot).length
+      const playerKey = lobby.maxPlayers === 4 ? "fourPlayer" : "eightPlayer"
+
+      if (lobby.roundsToWin === 1) {
+        stats[playerKey].single += humanCount
+      } else if (lobby.roundsToWin === 2) {
+        stats[playerKey].bestOf3 += humanCount
+      } else if (lobby.roundsToWin === 3) {
+        stats[playerKey].bestOf5 += humanCount
+      }
+    }
+
+    return stats
+  } catch (error) {
+    console.error("[v0] Error getting lobbies by config:", error)
+    return {
+      fourPlayer: { single: 0, bestOf3: 0, bestOf5: 0 },
+      eightPlayer: { single: 0, bestOf3: 0, bestOf5: 0 },
+    }
   }
 }
 
@@ -1330,6 +1367,7 @@ export const multiplayerService = {
   hostPrivateLobby,
   joinByCode,
   hostStartGame,
+  getLobbiesWaitingByConfig,
 }
 
 function getNextClockwiseIndex(currentIndex: number, playerCount: number): number {

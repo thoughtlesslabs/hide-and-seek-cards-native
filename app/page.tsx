@@ -15,13 +15,17 @@ import {
   sendHeartbeat,
   selectTarget,
   selectCard,
-  startRematchVote,
   sendEmojiReaction,
   hostPrivateLobby,
   joinByCode,
   getLobbyStatus, // Import getLobbyStatus
   joinMatchmaking, // Import joinMatchmaking
   leaveGame, // Import leaveGame
+  // Updated imports:
+  leaveLobby,
+  hostStartGame,
+  voteForRematch,
+  getLobbiesWaitingByConfig,
 } from "./actions/multiplayer"
 
 const TURN_TIMEOUT_MS = 15000
@@ -36,7 +40,8 @@ const VISUAL_COUNTER_CLOCKWISE = [0, 1, 2, 3, 4, 5, 6, 7]
 // Visual positions for 4 players
 const VISUAL_COUNTER_CLOCKWISE_4 = [0, 2, 4, 6] // S, W, N, E
 
-export default function Home() {
+export default function HideAndSeekCards() {
+  // Changed function name
   const [playerId] = useState(() => {
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem("hideseek-player-id")
@@ -82,6 +87,10 @@ export default function Home() {
   const [joinCodeInput, setJoinCodeInput] = useState("")
   const [joinError, setJoinError] = useState<string | null>(null)
   const [isJoining, setIsJoining] = useState(false)
+  const [lobbyStats, setLobbyStats] = useState<{
+    fourPlayer: { single: number; bestOf3: number; bestOf5: number }
+    eightPlayer: { single: number; bestOf3: number; bestOf5: number }
+  } | null>(null)
 
   const handleLeaveGame = useCallback(async () => {
     try {
@@ -108,6 +117,16 @@ export default function Home() {
       isMountedRef.current = false
     }
   }, [])
+
+  useEffect(() => {
+    if (gameMode === "playerSelection" || gameMode === "roundSelection") {
+      getLobbiesWaitingByConfig().then(setLobbyStats)
+      const interval = setInterval(() => {
+        getLobbiesWaitingByConfig().then(setLobbyStats)
+      }, 5000)
+      return () => clearInterval(interval)
+    }
+  }, [gameMode])
 
   const players: Player[] = Array.isArray(sharedGameState?.players)
     ? sharedGameState.players.map((p) => ({
@@ -446,14 +465,14 @@ export default function Home() {
     lastVersionRef.current = 0
     setLocalSelectedTarget(null)
     setHasVotedRematch(false)
-    setGameMode("roundSelection")
+    setGameMode("menu")
   }, [currentLobby, playerId])
 
   const handleVoteRematch = useCallback(async () => {
     if (hasVotedRematch) return
     setHasVotedRematch(true)
     try {
-      await startRematchVote(playerId)
+      await voteForRematch(playerId) // Changed function name
     } catch {
       setHasVotedRematch(false)
     }
@@ -626,7 +645,9 @@ export default function Home() {
             </button>
             {humanPlayers.length > 1 && (
               <p className="text-amber-500/60 text-xs">
-                {rematchVotes.length} of {humanPlayers.length} voted to rematch
+                {rematchCountdown === 0
+                  ? "Not enough votes to play again..."
+                  : `${rematchVotes.length} of ${humanPlayers.length} voted to rematch`}
               </p>
             )}
 
@@ -649,9 +670,6 @@ export default function Home() {
               </a>
             </div>
           </div>
-          {rematchCountdown === 0 && (
-            <p className="text-amber-500/70 text-sm mt-4 italic">Not enough votes to play again...</p>
-          )}
         </div>
       </div>
     )
@@ -674,8 +692,15 @@ export default function Home() {
   }
 
   if (gameMode === "playerSelection") {
+    const fourPlayerTotal = lobbyStats
+      ? lobbyStats.fourPlayer.single + lobbyStats.fourPlayer.bestOf3 + lobbyStats.fourPlayer.bestOf5
+      : 0
+    const eightPlayerTotal = lobbyStats
+      ? lobbyStats.eightPlayer.single + lobbyStats.eightPlayer.bestOf3 + lobbyStats.eightPlayer.bestOf5
+      : 0
+
     return (
-      <div className="min-h-screen w-full bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden p-4">
+      <div className="min-h-screen w-full bg-[#050505] flex flex-col items-center justify-start pt-[20vh] relative overflow-hidden p-4">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(217,119,6,0.05)_0%,_#050505_70%)]" />
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(180,83,9,0.08)_0%,_transparent_50%)]" />
 
@@ -695,10 +720,15 @@ export default function Home() {
                 setSelectedPlayerCount(4)
                 setGameMode("roundSelection")
               }}
-              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 rounded-2xl font-bold transition-all transform hover:scale-105 font-serif border border-amber-700/50 shadow-xl flex flex-col items-center"
+              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 rounded-2xl font-bold transition-all transform hover:scale-105 font-serif border border-amber-700/50 shadow-xl flex flex-col items-center relative"
             >
               <span className="text-xl tracking-widest">4 Players</span>
               <span className="text-amber-500/70 text-sm font-normal mt-1">Faster games, quicker rounds</span>
+              {fourPlayerTotal > 0 && (
+                <span className="absolute top-2 right-3 bg-green-600 text-white text-xs px-2 py-0.5 rounded-full">
+                  {fourPlayerTotal} waiting
+                </span>
+              )}
             </button>
 
             <button
@@ -706,10 +736,15 @@ export default function Home() {
                 setSelectedPlayerCount(8)
                 setGameMode("roundSelection")
               }}
-              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 rounded-2xl font-bold transition-all transform hover:scale-105 font-serif border border-amber-700/50 shadow-xl flex flex-col items-center"
+              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 rounded-2xl font-bold transition-all transform hover:scale-105 font-serif border border-amber-700/50 shadow-xl flex flex-col items-center relative"
             >
               <span className="text-xl tracking-widest">8 Players</span>
               <span className="text-amber-500/70 text-sm font-normal mt-1">Longer games, more chaos</span>
+              {eightPlayerTotal > 0 && (
+                <span className="absolute top-2 right-3 bg-green-600 text-white text-xs px-2 py-0.5 rounded-full">
+                  {eightPlayerTotal} waiting
+                </span>
+              )}
             </button>
           </div>
 
@@ -725,8 +760,10 @@ export default function Home() {
   }
 
   if (gameMode === "roundSelection") {
+    const stats = selectedPlayerCount === 4 ? lobbyStats?.fourPlayer : lobbyStats?.eightPlayer
+
     return (
-      <div className="min-h-screen w-full bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden p-4">
+      <div className="min-h-screen w-full bg-[#050505] flex flex-col items-center justify-start pt-[20vh] relative overflow-hidden p-4">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(217,119,6,0.05)_0%,_#050505_70%)]" />
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(180,83,9,0.08)_0%,_transparent_50%)]" />
 
@@ -738,30 +775,72 @@ export default function Home() {
           <h1 className="font-serif text-4xl sm:text-5xl text-amber-700 tracking-widest mb-4 drop-shadow-[0_0_30px_rgba(180,83,9,0.6)]">
             FIND MATCH
           </h1>
-          <p className="text-amber-100/70 font-serif text-base mb-8">
-            Playing with {selectedPlayerCount} players. How many rounds to win?
-          </p>
+          <p className="text-amber-100/70 font-serif text-base mb-2">Select game length</p>
+          <p className="text-amber-500/60 text-sm mb-8">{selectedPlayerCount} Players</p>
 
           <div className="flex flex-col gap-4 mb-8">
-            {[1, 2, 3].map((rounds) => (
-              <button
-                key={rounds}
-                onClick={async () => {
-                  console.log(`[v0] User selected rounds=${rounds}, playerCount=${selectedPlayerCount}`)
-                  setSelectedRoundsToWin(rounds)
-                  setGameMode("matchmaking")
-                  try {
-                    await joinMatchmaking(playerId, rounds, selectedPlayerCount)
-                  } catch (error) {
-                    console.error("Failed to join matchmaking:", error)
-                    setGameMode("menu")
-                  }
-                }}
-                className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl"
-              >
-                {rounds === 1 ? "Single Round" : `Best of ${rounds * 2 - 1}`}
-              </button>
-            ))}
+            <button
+              onClick={async () => {
+                setSelectedRoundsToWin(1)
+                setGameMode("matchmaking")
+                try {
+                  await joinMatchmaking(playerId, 1, selectedPlayerCount)
+                } catch (error) {
+                  console.error("[v0] Error joining matchmaking:", error)
+                  setGameMode("menu")
+                }
+              }}
+              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl relative"
+            >
+              Single Round
+              {stats?.single ? (
+                <span className="absolute top-2 right-3 bg-green-600 text-white text-xs px-2 py-0.5 rounded-full">
+                  {stats.single} waiting
+                </span>
+              ) : null}
+            </button>
+
+            <button
+              onClick={async () => {
+                setSelectedRoundsToWin(2)
+                setGameMode("matchmaking")
+                try {
+                  await joinMatchmaking(playerId, 2, selectedPlayerCount)
+                } catch (error) {
+                  console.error("[v0] Error joining matchmaking:", error)
+                  setGameMode("menu")
+                }
+              }}
+              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl relative"
+            >
+              Best of 3
+              {stats?.bestOf3 ? (
+                <span className="absolute top-2 right-3 bg-green-600 text-white text-xs px-2 py-0.5 rounded-full">
+                  {stats.bestOf3} waiting
+                </span>
+              ) : null}
+            </button>
+
+            <button
+              onClick={async () => {
+                setSelectedRoundsToWin(3)
+                setGameMode("matchmaking")
+                try {
+                  await joinMatchmaking(playerId, 3, selectedPlayerCount)
+                } catch (error) {
+                  console.error("[v0] Error joining matchmaking:", error)
+                  setGameMode("menu")
+                }
+              }}
+              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl relative"
+            >
+              Best of 5
+              {stats?.bestOf5 ? (
+                <span className="absolute top-2 right-3 bg-green-600 text-white text-xs px-2 py-0.5 rounded-full">
+                  {stats.bestOf5} waiting
+                </span>
+              ) : null}
+            </button>
           </div>
 
           <button
@@ -777,23 +856,20 @@ export default function Home() {
 
   if (gameMode === "hostOrJoin") {
     return (
-      <div className="min-h-screen w-full bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden p-4">
+      <div className="min-h-screen w-full bg-[#050505] flex flex-col items-center justify-start pt-[20vh] relative overflow-hidden p-4">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(217,119,6,0.05)_0%,_#050505_70%)]" />
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(180,83,9,0.08)_0%,_transparent_50%)]" />
 
         <div className="relative z-10 text-center max-w-lg w-full">
-          <div className="mb-6">
-            <LiveStats />
-          </div>
-
-          <h1 className="font-serif text-4xl sm:text-5xl text-amber-700 tracking-widest mb-8 drop-shadow-[0_0_30px_rgba(180,83,9,0.6)]">
+          <h1 className="font-serif text-4xl sm:text-5xl text-amber-700 tracking-widest mb-4 drop-shadow-[0_0_30px_rgba(180,83,9,0.6)]">
             PRIVATE GAME
           </h1>
+          <p className="text-amber-100/70 font-serif text-base mb-8">Create or join a private game</p>
 
           <div className="flex flex-col gap-4 mb-8">
             <button
               onClick={() => setGameMode("hostPlayerSelection")}
-              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl flex flex-col items-center gap-1"
+              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 rounded-2xl font-bold transition-all transform hover:scale-105 font-serif border border-amber-700/50 shadow-xl flex flex-col items-center gap-1"
             >
               <span className="text-xl">Host Game</span>
               <span className="text-sm font-normal text-amber-400/70 tracking-wide">
@@ -825,15 +901,11 @@ export default function Home() {
 
   if (gameMode === "joinWithCode") {
     return (
-      <div className="min-h-screen w-full bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden p-4">
+      <div className="min-h-screen w-full bg-[#050505] flex flex-col items-center justify-start pt-[20vh] relative overflow-hidden p-4">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(217,119,6,0.05)_0%,_#050505_70%)]" />
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(180,83,9,0.08)_0%,_transparent_50%)]" />
 
         <div className="relative z-10 text-center max-w-lg w-full">
-          <div className="mb-6">
-            <LiveStats />
-          </div>
-
           <h1 className="font-serif text-4xl sm:text-5xl text-amber-700 tracking-widest mb-4 drop-shadow-[0_0_30px_rgba(180,83,9,0.6)]">
             JOIN GAME
           </h1>
@@ -885,15 +957,11 @@ export default function Home() {
 
   if (gameMode === "hostPlayerSelection") {
     return (
-      <div className="min-h-screen w-full bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden p-4">
+      <div className="min-h-screen w-full bg-[#050505] flex flex-col items-center justify-start pt-[20vh] relative overflow-hidden p-4">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(217,119,6,0.05)_0%,_#050505_70%)]" />
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(180,83,9,0.08)_0%,_transparent_50%)]" />
 
         <div className="relative z-10 text-center max-w-lg w-full">
-          <div className="mb-6">
-            <LiveStats />
-          </div>
-
           <h1 className="font-serif text-4xl sm:text-5xl text-amber-700 tracking-widest mb-4 drop-shadow-[0_0_30px_rgba(180,83,9,0.6)]">
             HOST GAME
           </h1>
@@ -936,15 +1004,11 @@ export default function Home() {
 
   if (gameMode === "hostRoundSelection") {
     return (
-      <div className="min-h-screen w-full bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden p-4">
+      <div className="min-h-screen w-full bg-[#050505] flex flex-col items-center justify-start pt-[20vh] relative overflow-hidden p-4">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(217,119,6,0.05)_0%,_#050505_70%)]" />
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(180,83,9,0.08)_0%,_transparent_50%)]" />
 
         <div className="relative z-10 text-center max-w-lg w-full">
-          <div className="mb-6">
-            <LiveStats />
-          </div>
-
           <h1 className="font-serif text-4xl sm:text-5xl text-amber-700 tracking-widest mb-4 drop-shadow-[0_0_30px_rgba(180,83,9,0.6)]">
             HOST GAME
           </h1>
@@ -1005,8 +1069,15 @@ export default function Home() {
         onGameStart={(lobby) => {
           setCurrentLobby(lobby)
           setGameMode("playing")
+          // Directly call hostStartGame here
+          if (isHost) {
+            hostStartGame(playerId, lobby.gameCode)
+          }
         }}
         onLeave={() => {
+          if (privateGameCode) {
+            leaveLobby(playerId, privateGameCode)
+          }
           setPrivateGameCode("")
           setIsHost(false)
           setJoinCodeInput("")
@@ -1020,7 +1091,7 @@ export default function Home() {
 
   if (gameMode === "menu") {
     return (
-      <div className="min-h-screen w-full bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden p-4">
+      <div className="min-h-screen w-full bg-[#050505] flex flex-col items-center justify-start pt-[15vh] relative overflow-hidden p-4">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(217,119,6,0.05)_0%,_#050505_70%)]" />
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(180,83,9,0.08)_0%,_transparent_50%)]" />
 
@@ -1145,7 +1216,7 @@ export default function Home() {
             </button>
             <button
               onClick={handleDismissPendingGame}
-              className="w-full px-8 py-3 bg-black/40 hover:bg-black/60 text-amber-200/80 text-base rounded-xl font-bold transition-all font-serif tracking-widest border border-amber-900/30"
+              className="w-full px-8 py-3 bg-black/40 hover:bg-black/60 text-amber-200/80 hover:text-amber-200 text-base rounded-xl font-bold transition-all font-serif tracking-widest border border-amber-900/30"
             >
               Exit to Menu
             </button>
@@ -1210,7 +1281,7 @@ export default function Home() {
                 turnTimeRemaining={isVisualPositionActive(4) ? turnTimeRemaining : null}
                 displayedEmoji={playerReactions[getVisualPlayer(4)?.id || ""]}
                 seriesWins={sharedGameState?.players.find((p) => p.id === getVisualPlayer(4)?.id)?.seriesWins || 0}
-                size="small"
+                size={selectedPlayerCount === 4 ? "normal" : "small"}
               />
             )}
           </div>
@@ -1231,7 +1302,7 @@ export default function Home() {
                 turnTimeRemaining={isVisualPositionActive(5) ? turnTimeRemaining : null}
                 displayedEmoji={playerReactions[getVisualPlayer(5)?.id || ""]}
                 seriesWins={sharedGameState?.players.find((p) => p.id === getVisualPlayer(5)?.id)?.seriesWins || 0}
-                size="small"
+                size={selectedPlayerCount === 4 ? "normal" : "small"}
               />
             )}
           </div>
@@ -1252,7 +1323,7 @@ export default function Home() {
                 turnTimeRemaining={isVisualPositionActive(6) ? turnTimeRemaining : null}
                 displayedEmoji={playerReactions[getVisualPlayer(6)?.id || ""]}
                 seriesWins={sharedGameState?.players.find((p) => p.id === getVisualPlayer(6)?.id)?.seriesWins || 0}
-                size="small"
+                size={selectedPlayerCount === 4 ? "normal" : "small"}
               />
             )}
           </div>
@@ -1273,7 +1344,7 @@ export default function Home() {
                 turnTimeRemaining={isVisualPositionActive(7) ? turnTimeRemaining : null}
                 displayedEmoji={playerReactions[getVisualPlayer(7)?.id || ""]}
                 seriesWins={sharedGameState?.players.find((p) => p.id === getVisualPlayer(7)?.id)?.seriesWins || 0}
-                size="small"
+                size={selectedPlayerCount === 4 ? "normal" : "small"}
               />
             )}
           </div>
@@ -1296,7 +1367,7 @@ export default function Home() {
                 seriesWins={sharedGameState?.players.find((p) => p.id === getVisualPlayer(0)?.id)?.seriesWins || 0}
                 isLocalPlayer={true}
                 onSendEmoji={handleSendEmoji}
-                size="small"
+                size={selectedPlayerCount === 4 ? "normal" : "small"}
               />
             )}
           </div>
@@ -1317,7 +1388,7 @@ export default function Home() {
                 turnTimeRemaining={isVisualPositionActive(1) ? turnTimeRemaining : null}
                 displayedEmoji={playerReactions[getVisualPlayer(1)?.id || ""]}
                 seriesWins={sharedGameState?.players.find((p) => p.id === getVisualPlayer(1)?.id)?.seriesWins || 0}
-                size="small"
+                size={selectedPlayerCount === 4 ? "normal" : "small"}
               />
             )}
           </div>
@@ -1338,7 +1409,7 @@ export default function Home() {
                 turnTimeRemaining={isVisualPositionActive(2) ? turnTimeRemaining : null}
                 displayedEmoji={playerReactions[getVisualPlayer(2)?.id || ""]}
                 seriesWins={sharedGameState?.players.find((p) => p.id === getVisualPlayer(2)?.id)?.seriesWins || 0}
-                size="small"
+                size={selectedPlayerCount === 4 ? "normal" : "small"}
               />
             )}
           </div>
@@ -1359,79 +1430,135 @@ export default function Home() {
                 turnTimeRemaining={isVisualPositionActive(3) ? turnTimeRemaining : null}
                 displayedEmoji={playerReactions[getVisualPlayer(3)?.id || ""]}
                 seriesWins={sharedGameState?.players.find((p) => p.id === getVisualPlayer(3)?.id)?.seriesWins || 0}
-                size="small"
+                size={selectedPlayerCount === 4 ? "normal" : "small"}
               />
             )}
           </div>
 
+          {/* CHANGE START */}
           <div className="absolute inset-0 flex items-center justify-center mx-16 sm:mx-20 md:mx-24 lg:mx-28 my-20 sm:my-24 pointer-events-none z-20">
-            {/* Mobile: 3+3+2 layout */}
-            <div className="sm:hidden grid grid-cols-3 gap-2 pointer-events-auto">
-              {cards.slice(0, 3).map((card) => (
-                <CardComponent
-                  key={card.id}
-                  card={card}
-                  totalCards={cards.length}
-                  canFlip={
-                    (phase === "select_card" || phase === "select_target") &&
-                    players[currentPlayerIndex]?.id === playerId &&
-                    (!!localSelectedTarget || !!targetPlayerId)
-                  }
-                  onFlip={() => handlePickCard(card.id)}
-                  playerAvatar={getCardPlayerAvatar(card)}
-                  size="small"
-                />
-              ))}
-              {cards.slice(3, 6).map((card) => (
-                <CardComponent
-                  key={card.id}
-                  card={card}
-                  totalCards={cards.length}
-                  canFlip={
-                    (phase === "select_card" || phase === "select_target") &&
-                    players[currentPlayerIndex]?.id === playerId &&
-                    (!!localSelectedTarget || !!targetPlayerId)
-                  }
-                  onFlip={() => handlePickCard(card.id)}
-                  playerAvatar={getCardPlayerAvatar(card)}
-                  size="small"
-                />
-              ))}
-              {cards.slice(6, 8).map((card) => (
-                <CardComponent
-                  key={card.id}
-                  card={card}
-                  totalCards={cards.length}
-                  canFlip={
-                    (phase === "select_card" || phase === "select_target") &&
-                    players[currentPlayerIndex]?.id === playerId &&
-                    (!!localSelectedTarget || !!targetPlayerId)
-                  }
-                  onFlip={() => handlePickCard(card.id)}
-                  playerAvatar={getCardPlayerAvatar(card)}
-                  size="small"
-                />
-              ))}
-            </div>
-            {/* Desktop/Tablet: 2x4 layout */}
-            <div className="hidden sm:grid grid-cols-4 gap-3 md:gap-4 pointer-events-auto">
-              {cards.map((card) => (
-                <CardComponent
-                  key={card.id}
-                  card={card}
-                  totalCards={cards.length}
-                  canFlip={
-                    (phase === "select_card" || phase === "select_target") &&
-                    players[currentPlayerIndex]?.id === playerId &&
-                    (!!localSelectedTarget || !!targetPlayerId)
-                  }
-                  onFlip={() => handlePickCard(card.id)}
-                  playerAvatar={getCardPlayerAvatar(card)}
-                  size="small"
-                />
-              ))}
-            </div>
+            {cards.length <= 4 ? (
+              <>
+                {/* Mobile: 2x2 layout for 4 or fewer cards */}
+                <div className="sm:hidden grid grid-cols-2 gap-3 pointer-events-auto">
+                  {cards.map((card) => (
+                    <CardComponent
+                      key={card.id}
+                      card={card}
+                      totalCards={cards.length}
+                      canFlip={
+                        (phase === "select_card" || phase === "select_target") &&
+                        players[currentPlayerIndex]?.id === playerId &&
+                        (!!localSelectedTarget || !!targetPlayerId)
+                      }
+                      onFlip={() => handlePickCard(card.id)}
+                      playerAvatar={getCardPlayerAvatar(card)}
+                      size="normal"
+                    />
+                  ))}
+                </div>
+                {/* Desktop/Tablet: 2x2 layout for 4 or fewer cards */}
+                <div className="hidden sm:grid grid-cols-2 gap-4 md:gap-6 pointer-events-auto">
+                  {cards.map((card) => (
+                    <CardComponent
+                      key={card.id}
+                      card={card}
+                      totalCards={cards.length}
+                      canFlip={
+                        (phase === "select_card" || phase === "select_target") &&
+                        players[currentPlayerIndex]?.id === playerId &&
+                        (!!localSelectedTarget || !!targetPlayerId)
+                      }
+                      onFlip={() => handlePickCard(card.id)}
+                      playerAvatar={getCardPlayerAvatar(card)}
+                      size="normal"
+                    />
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Mobile: 3+3+2 layout for more than 4 cards - use flex rows */}
+                <div className="sm:hidden flex flex-col gap-2 items-center pointer-events-auto">
+                  {/* First row of 3 */}
+                  <div className="flex gap-2">
+                    {cards.slice(0, 3).map((card) => (
+                      <CardComponent
+                        key={card.id}
+                        card={card}
+                        totalCards={cards.length}
+                        canFlip={
+                          (phase === "select_card" || phase === "select_target") &&
+                          players[currentPlayerIndex]?.id === playerId &&
+                          (!!localSelectedTarget || !!targetPlayerId)
+                        }
+                        onFlip={() => handlePickCard(card.id)}
+                        playerAvatar={getCardPlayerAvatar(card)}
+                        size="small"
+                      />
+                    ))}
+                  </div>
+                  {/* Second row of 3 */}
+                  <div className="flex gap-2">
+                    {cards.slice(3, 6).map((card) => (
+                      <CardComponent
+                        key={card.id}
+                        card={card}
+                        totalCards={cards.length}
+                        canFlip={
+                          (phase === "select_card" || phase === "select_target") &&
+                          players[currentPlayerIndex]?.id === playerId &&
+                          (!!localSelectedTarget || !!targetPlayerId)
+                        }
+                        onFlip={() => handlePickCard(card.id)}
+                        playerAvatar={getCardPlayerAvatar(card)}
+                        size="small"
+                      />
+                    ))}
+                  </div>
+                  {/* Third row of 2 (centered) */}
+                  {cards.length > 6 && (
+                    <div className="flex gap-2">
+                      {cards.slice(6).map((card) => (
+                        <CardComponent
+                          key={card.id}
+                          card={card}
+                          totalCards={cards.length}
+                          canFlip={
+                            (phase === "select_card" || phase === "select_target") &&
+                            players[currentPlayerIndex]?.id === playerId &&
+                            (!!localSelectedTarget || !!targetPlayerId)
+                          }
+                          onFlip={() => handlePickCard(card.id)}
+                          playerAvatar={getCardPlayerAvatar(card)}
+                          size="small"
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {/* Desktop/Tablet: 2x4 layout for 8 players */}
+                <div className="hidden sm:grid grid-cols-4 gap-3 md:gap-4 pointer-events-auto">
+                  {cards.map((card) => (
+                    <CardComponent
+                      key={card.id}
+                      card={card}
+                      totalCards={cards.length}
+                      canFlip={
+                        (phase === "select_card" || phase === "select_target") &&
+                        players[currentPlayerIndex]?.id === playerId &&
+                        (!!localSelectedTarget || !!targetPlayerId)
+                      }
+                      onFlip={() => handlePickCard(card.id)}
+                      playerAvatar={getCardPlayerAvatar(card)}
+                      size="small"
+                    />
+                  ))}
+                </div>
+              </>
+            )}
           </div>
+          {/* CHANGE END */}
         </div>
 
         <div className="flex-shrink-0 flex justify-between items-center px-4 sm:px-8 py-3 sm:py-4">

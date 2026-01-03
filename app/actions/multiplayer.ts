@@ -199,3 +199,18 @@ export async function hostStartGame(playerId: string): Promise<{ success: boolea
   }
   return await multiplayerService.hostStartGame(playerId)
 }
+
+export async function getLobbiesWaitingByConfig(): Promise<{
+  fourPlayer: { single: number; bestOf3: number; bestOf5: number }
+  eightPlayer: { single: number; bestOf3: number; bestOf5: number }
+}> {
+  try {
+    return await multiplayerService.getLobbiesWaitingByConfig()
+  } catch (error) {
+    console.error("[v0] Error fetching lobbies by config:", error)
+    return {
+      fourPlayer: { single: 0, bestOf3: 0, bestOf5: 0 },
+      eightPlayer: { single: 0, bestOf3: 0, bestOf5: 0 },
+    }
+  }
+}

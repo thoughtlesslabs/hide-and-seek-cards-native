@@ -6,10 +6,10 @@ import PlayerSeat from "@/components/player-seat"
 import CardComponent from "@/components/card-component"
 
 const AVATARS = [
-  "/mysterious-hooded-figure-dark-portrait.jpg",
-  "/elegant-woman-with-mask-venetian-style.jpg",
-  "/old-wizard-with-long-beard-fantasy-portrait.jpg",
-  "/young-rogue-thief-shadowy-portrait.jpg",
+  "https://api.dicebear.com/7.x/avataaars/svg?seed=mystic",
+  "https://api.dicebear.com/7.x/avataaars/svg?seed=shadow",
+  "https://api.dicebear.com/7.x/avataaars/svg?seed=ember",
+  "https://api.dicebear.com/7.x/avataaars/svg?seed=frost",
 ]
 
 const BOT_NAMES = ["Morgana", "Silas", "Thorne", "Corvus", "Elara", "Grimm", "Vesper", "Nyx"]
