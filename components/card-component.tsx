@@ -8,16 +8,26 @@ interface CardComponentProps {
   canFlip: boolean
   onFlip: () => void
   playerAvatar?: string
+  size?: "normal" | "small"
 }
 
-export default function CardComponent({ card, canFlip, onFlip, playerAvatar }: CardComponentProps) {
+export default function CardComponent({ card, canFlip, onFlip, playerAvatar, size = "normal" }: CardComponentProps) {
+  const isSmall = size === "small"
+  const cardSize = isSmall
+    ? "w-12 h-16 sm:w-14 sm:h-20 md:w-16 md:h-24"
+    : "w-20 h-28 sm:w-24 sm:h-36 md:w-28 md:h-40 lg:w-32 lg:h-44"
+  const avatarSize = isSmall ? "w-6 h-6 sm:w-8 sm:h-8 md:w-10 md:h-10" : "w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16"
+  const skullSize = isSmall ? "text-sm sm:text-base md:text-lg" : "text-2xl sm:text-3xl md:text-4xl"
+  const innerCircleSize = isSmall ? "w-4 h-4 sm:w-6 sm:h-6 md:w-8 md:h-8" : "w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14"
+  const innerDotSize = isSmall ? "w-2 h-2 sm:w-3 sm:h-3 md:w-4 md:h-4" : "w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7"
+
   return (
     <button
       onClick={() => canFlip && !card.isRevealed && onFlip()}
       disabled={!canFlip || card.isRevealed}
       className={`
         relative flex-shrink-0
-        w-20 h-28 sm:w-24 sm:h-34 md:w-28 md:h-40 lg:w-32 lg:h-44
+        ${cardSize}
         rounded-lg sm:rounded-xl
         transition-all duration-500
         ${canFlip && !card.isRevealed ? "hover:scale-110 hover:-translate-y-2 cursor-pointer" : "cursor-default"}
@@ -42,10 +52,14 @@ export default function CardComponent({ card, canFlip, onFlip, playerAvatar }: C
             backface-hidden
           `}
         >
-          <div className="absolute inset-2 sm:inset-3 border border-amber-800/40 rounded-md sm:rounded-lg"></div>
+          <div
+            className={`absolute ${isSmall ? "inset-0.5 sm:inset-1" : "inset-2 sm:inset-3"} border border-amber-800/40 rounded-md sm:rounded-lg`}
+          ></div>
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 border-2 border-amber-700/60 rounded-full flex items-center justify-center">
-              <div className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 bg-amber-800/40 rounded-full"></div>
+            <div
+              className={`${innerCircleSize} border-2 border-amber-700/60 rounded-full flex items-center justify-center`}
+            >
+              <div className={`${innerDotSize} bg-amber-800/40 rounded-full`}></div>
             </div>
           </div>
           {canFlip && !card.isRevealed && (
@@ -62,16 +76,18 @@ export default function CardComponent({ card, canFlip, onFlip, playerAvatar }: C
             backface-hidden [transform:rotateY(180deg)]
           `}
         >
-          <div className="absolute inset-2 sm:inset-3 border border-red-800/40 rounded-md sm:rounded-lg"></div>
+          <div
+            className={`absolute ${isSmall ? "inset-0.5 sm:inset-1" : "inset-2 sm:inset-3"} border border-red-800/40 rounded-md sm:rounded-lg`}
+          ></div>
           <div className="absolute inset-0 flex flex-col items-center justify-center p-1">
             {playerAvatar && (
               <img
                 src={playerAvatar || "/placeholder.svg"}
                 alt="Owner"
-                className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 rounded-full border-2 border-red-700 object-cover"
+                className={`${avatarSize} rounded-full border-2 border-red-700 object-cover`}
               />
             )}
-            <div className="mt-1 text-red-600 text-2xl sm:text-3xl md:text-4xl">☠</div>
+            <div className={`mt-1 text-red-600 ${skullSize}`}>☠</div>
           </div>
         </div>
       </div>

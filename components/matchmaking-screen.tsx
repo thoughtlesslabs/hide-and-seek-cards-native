@@ -130,39 +130,44 @@ export default function MatchmakingScreen({ playerId, onGameStart, roundsToWin }
             <p className="text-amber-100/80 text-sm mb-4 font-serif">
               {lobby.status === "waiting" ? "Waiting for players... Bots will join if needed." : "Game starting soon!"}
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="flex flex-col gap-2 sm:grid sm:grid-cols-4 sm:gap-3 md:gap-4">
               {lobby.players.map((player) => {
                 const emoji = getPlayerEmoji(player.id)
                 return (
                   <div
                     key={player.id}
-                    className="bg-black/60 border border-amber-900/30 rounded-xl p-4 flex items-center gap-3 relative"
+                    className="bg-black/60 border border-amber-900/30 rounded-xl p-2 sm:p-3 flex flex-row sm:flex-col items-center gap-3 sm:gap-0 relative"
                   >
-                    <div className="relative">
+                    <div className="relative sm:mb-2">
                       {emoji && (
-                        <span className="absolute -top-8 left-1/2 -translate-x-1/2 text-3xl animate-bounce z-10">
+                        <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-2xl animate-bounce z-10">
                           {emoji}
                         </span>
                       )}
                       <img
                         src={player.avatar || "/placeholder.svg"}
                         alt={player.username}
-                        className="w-12 h-12 rounded-full border-2 border-amber-700"
+                        className="w-10 h-10 sm:w-12 sm:h-12 rounded-full border-2 border-amber-700 bg-white"
                       />
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-amber-100 font-serif truncate">{player.username}</p>
-                      <p className="text-amber-700/60 text-xs uppercase">{player.isBot ? "Bot" : "Human"}</p>
+                    <div className="flex flex-col sm:items-center">
+                      <p className="text-amber-100 font-serif text-xs sm:text-sm truncate max-w-[120px] sm:max-w-full sm:w-full sm:text-center">
+                        {player.username}
+                      </p>
+                      <p className="text-amber-700/60 text-[10px] sm:text-xs uppercase">
+                        {player.isBot ? "Bot" : "Human"}
+                      </p>
                     </div>
                   </div>
                 )
               })}
-              {Array.from({ length: 4 - lobby.players.length }).map((_, idx) => (
+              {Array.from({ length: 8 - lobby.players.length }).map((_, idx) => (
                 <div
                   key={`empty-${idx}`}
-                  className="bg-black/30 border border-amber-900/20 rounded-xl p-4 flex items-center justify-center"
+                  className="bg-black/30 border border-amber-900/20 rounded-xl p-2 sm:p-3 flex flex-row sm:flex-col items-center gap-3 sm:gap-0 sm:justify-center min-h-[56px] sm:min-h-[100px]"
                 >
-                  <p className="text-amber-700/40 text-sm font-serif">Waiting...</p>
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full border-2 border-amber-900/20 border-dashed sm:mb-2"></div>
+                  <p className="text-amber-700/40 text-xs font-serif">Waiting...</p>
                 </div>
               ))}
             </div>

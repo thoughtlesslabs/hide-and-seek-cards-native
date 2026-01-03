@@ -10,25 +10,25 @@ import OfflineGame from "@/components/offline-game"
 import AnimatedCardPreview from "@/components/animated-card-preview"
 import LiveStats from "@/components/live-stats"
 import {
-  getGameState,
-  leaveGame,
-  pickCard,
-  sendEmojiReaction,
-  voteForRematch,
-  checkBotOnlyGame,
+  pollGameState,
   sendHeartbeat,
-  getGameStateWithReactions, // Import new combined function
-} from "@/app/actions/multiplayer"
+  selectTarget,
+  selectCard,
+  startRematchVote,
+  sendEmojiReaction,
+} from "./actions/multiplayer"
 
 const TURN_TIMEOUT_MS = 15000
 const GAME_START_DELAY_MS = 3000
-const POLL_INTERVAL_MS = 500
 const REMATCH_TIMEOUT_SECONDS = 30
+const POLL_INTERVAL_MS = 500
 
-const GAME_TURN_ORDER = [0, 2, 1, 3]
-const VISUAL_COUNTER_CLOCKWISE = [0, 3, 1, 2]
+// Game turn order: 0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 (clockwise from bottom)
+const GAME_TURN_ORDER = [0, 1, 2, 3, 4, 5, 6, 7]
+// Visual positions: 0=S, 1=SW, 2=W, 3=NW, 4=N, 5=NE, 6=E, 7=SE (counter-clockwise)
+const VISUAL_COUNTER_CLOCKWISE = [0, 1, 2, 3, 4, 5, 6, 7]
 
-export default function HideAndSeekCards() {
+export default function Home() {
   const [playerId] = useState(() => {
     if (typeof window !== "undefined") {
       const stored = sessionStorage.getItem("hideseek_player_id")
@@ -57,7 +57,7 @@ export default function HideAndSeekCards() {
   const [pendingGameLobby, setPendingGameLobby] = useState<Lobby | null>(null)
 
   const handleLeaveGame = useCallback(async () => {
-    await leaveGame(playerId)
+    await sendHeartbeat(playerId)
     setShowLeaveModal(false)
     // Reset all game state
     setSharedGameState(null)
@@ -128,7 +128,7 @@ export default function HideAndSeekCards() {
   const getVisualPlayer = (visualPosition: number) => {
     if (localPlayerGameIndex === -1 || players.length === 0) return players[visualPosition]
     const visualStep = VISUAL_COUNTER_CLOCKWISE.indexOf(visualPosition)
-    const targetTurnPosition = (myTurnPosition - visualStep + 4) % 4
+    const targetTurnPosition = (myTurnPosition - visualStep + 8) % 8
     const targetServerIndex = GAME_TURN_ORDER[targetTurnPosition]
     return players[targetServerIndex]
   }
@@ -136,7 +136,7 @@ export default function HideAndSeekCards() {
   const getGameIndexForVisual = (visualPosition: number) => {
     if (localPlayerGameIndex === -1) return visualPosition
     const visualStep = VISUAL_COUNTER_CLOCKWISE.indexOf(visualPosition)
-    const targetTurnPosition = (myTurnPosition - visualStep + 4) % 4
+    const targetTurnPosition = (myTurnPosition - visualStep + 8) % 8
     return GAME_TURN_ORDER[targetTurnPosition]
   }
 
@@ -147,51 +147,23 @@ export default function HideAndSeekCards() {
   useEffect(() => {
     if (gameMode !== "playing" || !currentLobby) return
 
-    const pollGameState = async () => {
-      if (!isMountedRef.current || !playerId || !currentLobby) return
-
-      try {
-        const { state, reactions } = await getGameStateWithReactions(playerId)
-
-        if (state && isMountedRef.current) {
-          if (!Array.isArray(state.players) || !Array.isArray(state.cards)) {
-            return
+    const pollGameStateInterval = setInterval(() => {
+      if (isMountedRef.current) {
+        pollGameState(playerId).then((state) => {
+          if (state && isMountedRef.current) {
+            if (!Array.isArray(state.players) || !Array.isArray(state.cards)) {
+              return
+            }
+            if (state.version !== lastVersionRef.current) {
+              lastVersionRef.current = state.version
+              setSharedGameState(state)
+            }
           }
-          if (state.version !== lastVersionRef.current) {
-            lastVersionRef.current = state.version
-            setSharedGameState(state)
-          }
-
-          if (isMountedRef.current) {
-            setPlayerReactions(reactions || {})
-          }
-
-          if (
-            state.phase === "game_over" ||
-            state.phase === "series_end" ||
-            state.phase === "round_end" ||
-            state.phase === "reveal_result" ||
-            state.phase === "elimination_animation" ||
-            state.pendingEliminationId
-          ) {
-            return
-          }
-        }
-
-        const terminated = await checkBotOnlyGame(currentLobby.id)
-        if (terminated && isMountedRef.current) {
-          setGameMode("menu")
-          setCurrentLobby(null)
-          setSharedGameState(null)
-        }
-      } catch {
-        // Silently fail
+        })
       }
-    }
+    }, POLL_INTERVAL_MS)
 
-    pollGameState()
-    const interval = setInterval(pollGameState, POLL_INTERVAL_MS)
-    return () => clearInterval(interval)
+    return () => clearInterval(pollGameStateInterval)
   }, [gameMode, currentLobby, playerId])
 
   useEffect(() => {
@@ -304,7 +276,7 @@ export default function HideAndSeekCards() {
       setHasVotedRematch(false)
 
       try {
-        const state = await getGameState(playerId)
+        const state = await pollGameState(playerId)
         if (state && Array.isArray(state.players) && Array.isArray(state.cards)) {
           lastVersionRef.current = state.version
           setSharedGameState(state)
@@ -322,6 +294,7 @@ export default function HideAndSeekCards() {
       const currentPlayer = players[currentPlayerIndex]
       if (currentPlayer?.id !== playerId) return
       setLocalSelectedTarget(targetId)
+      selectTarget(playerId, targetId)
     },
     [phase, players, currentPlayerIndex, playerId],
   )
@@ -335,7 +308,7 @@ export default function HideAndSeekCards() {
       const targetToUse = localSelectedTarget || targetPlayerId
       if (!targetToUse) return
 
-      const newState = await pickCard(playerId, cardId, targetToUse)
+      const newState = await selectCard(playerId, cardId, targetToUse)
       if (newState && isMountedRef.current && Array.isArray(newState.players) && Array.isArray(newState.cards)) {
         lastVersionRef.current = newState.version
         setSharedGameState(newState)
@@ -347,7 +320,7 @@ export default function HideAndSeekCards() {
 
   const handlePlayAgain = useCallback(async () => {
     if (currentLobby) {
-      await leaveGame(playerId)
+      await sendHeartbeat(playerId)
     }
     setShowLeaveModal(false)
     setSharedGameState(null)
@@ -365,7 +338,7 @@ export default function HideAndSeekCards() {
     if (hasVotedRematch) return
     setHasVotedRematch(true)
     try {
-      await voteForRematch(playerId)
+      await startRematchVote(playerId)
     } catch {
       setHasVotedRematch(false)
     }
@@ -375,7 +348,7 @@ export default function HideAndSeekCards() {
     if (pendingGameLobby) {
       setCurrentLobby(pendingGameLobby)
       setGameMode("playing")
-      const state = await getGameState(playerId)
+      const state = await pollGameState(playerId)
       if (state) {
         setSharedGameState(state)
       }
@@ -385,7 +358,7 @@ export default function HideAndSeekCards() {
   }
 
   const handleDismissPendingGame = async () => {
-    await leaveGame(playerId)
+    await sendHeartbeat(playerId)
     setPendingGameLobby(null)
     setGameStartedWhileAway(false)
     setGameMode("menu")
@@ -803,68 +776,92 @@ export default function HideAndSeekCards() {
         )}
 
         <div className="flex-grow relative min-h-[350px] sm:min-h-[400px]">
-          {/* Top player (position 1) */}
-          <div className="absolute top-2 sm:top-4 md:top-6 left-1/2 -translate-x-1/2 z-30">
-            {getVisualPlayer(1) && (
+          {/* Top player (position 4 - North) */}
+          <div className="absolute -top-2 sm:top-0 md:top-2 left-1/2 -translate-x-1/2 z-30">
+            {getVisualPlayer(4) && (
               <PlayerSeat
-                player={getVisualPlayer(1)!}
-                isActive={isVisualPositionActive(1)}
-                isTarget={(localSelectedTarget || targetPlayerId) === getVisualPlayer(1)?.id}
+                player={getVisualPlayer(4)!}
+                isActive={isVisualPositionActive(4)}
+                isTarget={(localSelectedTarget || targetPlayerId) === getVisualPlayer(4)?.id}
                 canBeTargeted={
                   phase === "select_target" &&
-                  !isVisualPositionActive(1) &&
+                  !isVisualPositionActive(4) &&
                   players[currentPlayerIndex]?.id === playerId
                 }
                 onSelectTarget={handleSelectTarget}
-                turnTimeRemaining={isVisualPositionActive(1) ? turnTimeRemaining : null}
-                displayedEmoji={playerReactions[getVisualPlayer(1)?.id || ""]}
-                seriesWins={sharedGameState?.players.find((p) => p.id === getVisualPlayer(1)?.id)?.seriesWins || 0}
+                turnTimeRemaining={isVisualPositionActive(4) ? turnTimeRemaining : null}
+                displayedEmoji={playerReactions[getVisualPlayer(4)?.id || ""]}
+                seriesWins={sharedGameState?.players.find((p) => p.id === getVisualPlayer(4)?.id)?.seriesWins || 0}
+                size="small"
               />
             )}
           </div>
 
-          {/* Left player (position 2) */}
-          <div className="absolute top-1/2 -translate-y-1/2 left-1 sm:left-2 md:left-4 z-30">
-            {getVisualPlayer(2) && (
+          {/* Top-right player (position 5 - Northeast) */}
+          <div className="absolute top-6 sm:top-10 md:top-12 right-4 sm:right-8 md:right-16 z-30">
+            {getVisualPlayer(5) && (
               <PlayerSeat
-                player={getVisualPlayer(2)!}
-                isActive={isVisualPositionActive(2)}
-                isTarget={(localSelectedTarget || targetPlayerId) === getVisualPlayer(2)?.id}
+                player={getVisualPlayer(5)!}
+                isActive={isVisualPositionActive(5)}
+                isTarget={(localSelectedTarget || targetPlayerId) === getVisualPlayer(5)?.id}
                 canBeTargeted={
                   phase === "select_target" &&
-                  !isVisualPositionActive(2) &&
+                  !isVisualPositionActive(5) &&
                   players[currentPlayerIndex]?.id === playerId
                 }
                 onSelectTarget={handleSelectTarget}
-                turnTimeRemaining={isVisualPositionActive(2) ? turnTimeRemaining : null}
-                displayedEmoji={playerReactions[getVisualPlayer(2)?.id || ""]}
-                seriesWins={sharedGameState?.players.find((p) => p.id === getVisualPlayer(2)?.id)?.seriesWins || 0}
+                turnTimeRemaining={isVisualPositionActive(5) ? turnTimeRemaining : null}
+                displayedEmoji={playerReactions[getVisualPlayer(5)?.id || ""]}
+                seriesWins={sharedGameState?.players.find((p) => p.id === getVisualPlayer(5)?.id)?.seriesWins || 0}
+                size="small"
               />
             )}
           </div>
 
-          {/* Right player (position 3) */}
-          <div className="absolute top-1/2 -translate-y-1/2 right-1 sm:right-2 md:right-4 z-30">
-            {getVisualPlayer(3) && (
+          {/* Right player (position 6 - East) */}
+          <div className="absolute top-1/2 -translate-y-1/2 right-0 sm:right-2 md:right-6 z-30">
+            {getVisualPlayer(6) && (
               <PlayerSeat
-                player={getVisualPlayer(3)!}
-                isActive={isVisualPositionActive(3)}
-                isTarget={(localSelectedTarget || targetPlayerId) === getVisualPlayer(3)?.id}
+                player={getVisualPlayer(6)!}
+                isActive={isVisualPositionActive(6)}
+                isTarget={(localSelectedTarget || targetPlayerId) === getVisualPlayer(6)?.id}
                 canBeTargeted={
                   phase === "select_target" &&
-                  !isVisualPositionActive(3) &&
+                  !isVisualPositionActive(6) &&
                   players[currentPlayerIndex]?.id === playerId
                 }
                 onSelectTarget={handleSelectTarget}
-                turnTimeRemaining={isVisualPositionActive(3) ? turnTimeRemaining : null}
-                displayedEmoji={playerReactions[getVisualPlayer(3)?.id || ""]}
-                seriesWins={sharedGameState?.players.find((p) => p.id === getVisualPlayer(3)?.id)?.seriesWins || 0}
+                turnTimeRemaining={isVisualPositionActive(6) ? turnTimeRemaining : null}
+                displayedEmoji={playerReactions[getVisualPlayer(6)?.id || ""]}
+                seriesWins={sharedGameState?.players.find((p) => p.id === getVisualPlayer(6)?.id)?.seriesWins || 0}
+                size="small"
               />
             )}
           </div>
 
-          {/* Bottom player (position 0 - local player) */}
-          <div className="absolute -bottom-8 sm:-bottom-6 md:-bottom-8 left-1/2 -translate-x-1/2 z-30">
+          {/* Bottom-right player (position 7 - Southeast) */}
+          <div className="absolute bottom-6 sm:bottom-10 md:bottom-12 right-4 sm:right-8 md:right-16 z-30">
+            {getVisualPlayer(7) && (
+              <PlayerSeat
+                player={getVisualPlayer(7)!}
+                isActive={isVisualPositionActive(7)}
+                isTarget={(localSelectedTarget || targetPlayerId) === getVisualPlayer(7)?.id}
+                canBeTargeted={
+                  phase === "select_target" &&
+                  !isVisualPositionActive(7) &&
+                  players[currentPlayerIndex]?.id === playerId
+                }
+                onSelectTarget={handleSelectTarget}
+                turnTimeRemaining={isVisualPositionActive(7) ? turnTimeRemaining : null}
+                displayedEmoji={playerReactions[getVisualPlayer(7)?.id || ""]}
+                seriesWins={sharedGameState?.players.find((p) => p.id === getVisualPlayer(7)?.id)?.seriesWins || 0}
+                size="small"
+              />
+            )}
+          </div>
+
+          {/* Bottom player (position 0 - South, local player) */}
+          <div className="absolute -bottom-2 sm:bottom-0 md:bottom-2 left-1/2 -translate-x-1/2 z-30">
             {getVisualPlayer(0) && (
               <PlayerSeat
                 player={getVisualPlayer(0)!}
@@ -881,30 +878,140 @@ export default function HideAndSeekCards() {
                 seriesWins={sharedGameState?.players.find((p) => p.id === getVisualPlayer(0)?.id)?.seriesWins || 0}
                 isLocalPlayer={true}
                 onSendEmoji={handleSendEmoji}
+                size="small"
               />
             )}
           </div>
 
-          {/* Cards grid */}
+          {/* Bottom-left player (position 1 - Southwest) */}
+          <div className="absolute bottom-6 sm:bottom-10 md:bottom-12 left-4 sm:left-8 md:left-16 z-30">
+            {getVisualPlayer(1) && (
+              <PlayerSeat
+                player={getVisualPlayer(1)!}
+                isActive={isVisualPositionActive(1)}
+                isTarget={(localSelectedTarget || targetPlayerId) === getVisualPlayer(1)?.id}
+                canBeTargeted={
+                  phase === "select_target" &&
+                  !isVisualPositionActive(1) &&
+                  players[currentPlayerIndex]?.id === playerId
+                }
+                onSelectTarget={handleSelectTarget}
+                turnTimeRemaining={isVisualPositionActive(1) ? turnTimeRemaining : null}
+                displayedEmoji={playerReactions[getVisualPlayer(1)?.id || ""]}
+                seriesWins={sharedGameState?.players.find((p) => p.id === getVisualPlayer(1)?.id)?.seriesWins || 0}
+                size="small"
+              />
+            )}
+          </div>
+
+          {/* Left player (position 2 - West) */}
+          <div className="absolute top-1/2 -translate-y-1/2 left-0 sm:left-2 md:left-6 z-30">
+            {getVisualPlayer(2) && (
+              <PlayerSeat
+                player={getVisualPlayer(2)!}
+                isActive={isVisualPositionActive(2)}
+                isTarget={(localSelectedTarget || targetPlayerId) === getVisualPlayer(2)?.id}
+                canBeTargeted={
+                  phase === "select_target" &&
+                  !isVisualPositionActive(2) &&
+                  players[currentPlayerIndex]?.id === playerId
+                }
+                onSelectTarget={handleSelectTarget}
+                turnTimeRemaining={isVisualPositionActive(2) ? turnTimeRemaining : null}
+                displayedEmoji={playerReactions[getVisualPlayer(2)?.id || ""]}
+                seriesWins={sharedGameState?.players.find((p) => p.id === getVisualPlayer(2)?.id)?.seriesWins || 0}
+                size="small"
+              />
+            )}
+          </div>
+
+          {/* Top-left player (position 3 - Northwest) */}
+          <div className="absolute top-6 sm:top-10 md:top-12 left-4 sm:left-8 md:left-16 z-30">
+            {getVisualPlayer(3) && (
+              <PlayerSeat
+                player={getVisualPlayer(3)!}
+                isActive={isVisualPositionActive(3)}
+                isTarget={(localSelectedTarget || targetPlayerId) === getVisualPlayer(3)?.id}
+                canBeTargeted={
+                  phase === "select_target" &&
+                  !isVisualPositionActive(3) &&
+                  players[currentPlayerIndex]?.id === playerId
+                }
+                onSelectTarget={handleSelectTarget}
+                turnTimeRemaining={isVisualPositionActive(3) ? turnTimeRemaining : null}
+                displayedEmoji={playerReactions[getVisualPlayer(3)?.id || ""]}
+                seriesWins={sharedGameState?.players.find((p) => p.id === getVisualPlayer(3)?.id)?.seriesWins || 0}
+                size="small"
+              />
+            )}
+          </div>
+
           <div className="absolute inset-0 flex items-center justify-center mx-16 sm:mx-20 md:mx-24 lg:mx-28 my-20 sm:my-24 pointer-events-none z-20">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 md:gap-5 lg:gap-6 pointer-events-auto">
-              {cards.map((card, index) => {
-                const cardOwner = players.find((p) => p.id === card.ownerId)
-                return (
-                  <CardComponent
-                    key={card.id}
-                    card={card}
-                    totalCards={cards.length}
-                    canFlip={
-                      (phase === "select_card" || phase === "select_target") &&
-                      players[currentPlayerIndex]?.id === playerId &&
-                      (!!localSelectedTarget || !!targetPlayerId)
-                    }
-                    onFlip={() => handlePickCard(card.id)}
-                    playerAvatar={cardOwner?.avatar}
-                  />
-                )
-              })}
+            {/* Mobile: 3+3+2 layout */}
+            <div className="sm:hidden grid grid-cols-3 gap-2 pointer-events-auto">
+              {cards.slice(0, 3).map((card) => (
+                <CardComponent
+                  key={card.id}
+                  card={card}
+                  totalCards={cards.length}
+                  canFlip={
+                    (phase === "select_card" || phase === "select_target") &&
+                    players[currentPlayerIndex]?.id === playerId &&
+                    (!!localSelectedTarget || !!targetPlayerId)
+                  }
+                  onFlip={() => handlePickCard(card.id)}
+                  playerAvatar={getCardPlayerAvatar(card)}
+                  size="small"
+                />
+              ))}
+              {cards.slice(3, 6).map((card) => (
+                <CardComponent
+                  key={card.id}
+                  card={card}
+                  totalCards={cards.length}
+                  canFlip={
+                    (phase === "select_card" || phase === "select_target") &&
+                    players[currentPlayerIndex]?.id === playerId &&
+                    (!!localSelectedTarget || !!targetPlayerId)
+                  }
+                  onFlip={() => handlePickCard(card.id)}
+                  playerAvatar={getCardPlayerAvatar(card)}
+                  size="small"
+                />
+              ))}
+              {cards.slice(6, 8).map((card) => (
+                <CardComponent
+                  key={card.id}
+                  card={card}
+                  totalCards={cards.length}
+                  canFlip={
+                    (phase === "select_card" || phase === "select_target") &&
+                    players[currentPlayerIndex]?.id === playerId &&
+                    (!!localSelectedTarget || !!targetPlayerId)
+                  }
+                  onFlip={() => handlePickCard(card.id)}
+                  playerAvatar={getCardPlayerAvatar(card)}
+                  size="small"
+                />
+              ))}
+            </div>
+            {/* Desktop/Tablet: 2x4 layout */}
+            <div className="hidden sm:grid grid-cols-4 gap-3 md:gap-4 pointer-events-auto">
+              {cards.map((card) => (
+                <CardComponent
+                  key={card.id}
+                  card={card}
+                  totalCards={cards.length}
+                  canFlip={
+                    (phase === "select_card" || phase === "select_target") &&
+                    players[currentPlayerIndex]?.id === playerId &&
+                    (!!localSelectedTarget || !!targetPlayerId)
+                  }
+                  onFlip={() => handlePickCard(card.id)}
+                  playerAvatar={getCardPlayerAvatar(card)}
+                  size="small"
+                />
+              ))}
             </div>
           </div>
         </div>

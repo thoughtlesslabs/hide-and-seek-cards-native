@@ -2,19 +2,19 @@ import { redis, REDIS_KEYS as IMPORTED_REDIS_KEYS, REDIS_TTL as IMPORTED_REDIS_T
 import type { Lobby, LobbyPlayer, SharedGameState, SharedPlayer, SharedCard } from "@/types/multiplayer"
 import { generateUsername } from "./username-generator"
 
-const MAX_PLAYERS = 4
+const MAX_PLAYERS = 8
 const LOBBY_TIMER_MS = 30000
 const TURN_TIMEOUT_MS = 8000
 const DISCONNECT_TIMEOUT_MS = 60000
 const GAME_START_DELAY_MS = 3000
-const BOT_NAMES = ["Silas", "Morgana", "Thorne", "Valeria", "Corvus", "Nyx"]
-const BOT_AVATAR_SEEDS = ["mystic", "shadow", "ember", "frost", "storm", "void"]
+const BOT_NAMES = ["Silas", "Morgana", "Thorne", "Valeria", "Corvus", "Nyx", "Grimm", "Elara"]
+const BOT_AVATAR_SEEDS = ["mystic", "shadow", "ember", "frost", "storm", "void", "phantom", "oracle"]
 const BOT_THINKING_DELAY_MS = 1500
 const REVEAL_RESULT_DURATION_MS = 2000
 const FLIP_ANIMATION_DURATION_MS = 1000
 const ELIMINATION_ANIMATION_DURATION_MS = 1500
 const ROUND_END_DELAY_MS = 3000
-const COUNTER_CLOCKWISE_ORDER = [0, 2, 1, 3]
+const COUNTER_CLOCKWISE_ORDER = [0, 4, 2, 6, 1, 5, 3, 7]
 
 const REDIS_TTL = {
   ...IMPORTED_REDIS_TTL,
@@ -57,7 +57,7 @@ function generateBot(existingPlayers: LobbyPlayer[] = []): LobbyPlayer {
   // Find an available name
   let botName = BOT_NAMES.find((name) => !usedNames.has(name))
   if (!botName) {
-    // Fallback if all names used (shouldn't happen with 4 max players)
+    // Fallback if all names used (shouldn't happen with 8 max players)
     botName = `Bot${Date.now().toString().slice(-4)}`
   }
 

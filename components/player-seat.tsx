@@ -16,6 +16,7 @@ interface PlayerSeatProps {
   seriesWins?: number
   isLocalPlayer?: boolean
   onSendEmoji?: (emoji: string) => void
+  size?: "normal" | "small"
 }
 
 export default function PlayerSeat({
@@ -29,6 +30,7 @@ export default function PlayerSeat({
   seriesWins = 0,
   isLocalPlayer = false,
   onSendEmoji,
+  size = "normal",
 }: PlayerSeatProps) {
   const [showEmoji, setShowEmoji] = useState(false)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
@@ -73,14 +75,25 @@ export default function PlayerSeat({
 
   const isClickable = canBeTargeted && !player.isEliminated
 
+  const isSmall = size === "small"
+  const containerHeight = isSmall ? "h-[110px] sm:h-[130px] md:h-[150px]" : "h-[150px] sm:h-[180px] md:h-[210px]"
+  const avatarSize = isSmall ? "w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16" : "w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24"
+  const textSize = isSmall ? "text-[10px] sm:text-xs" : "text-xs sm:text-sm"
+  const eliminatedX = isSmall ? "text-xl sm:text-2xl" : "text-4xl sm:text-5xl"
+  const winTokenSize = isSmall ? "w-2 h-2 sm:w-2.5 sm:h-2.5" : "w-3 h-3 sm:w-4 sm:h-4"
+  const emojiSize = isSmall ? "text-2xl sm:text-3xl" : "text-4xl sm:text-5xl"
+  const emojiTop = isSmall ? "-top-6 sm:-top-8" : "-top-12 sm:-top-14"
+
+  const showTimer = isActive && turnTimeRemaining !== null && turnTimeRemaining !== undefined && !player.isEliminated
+
   return (
-    <div className="relative flex flex-col items-center gap-1 h-[150px] sm:h-[180px] md:h-[210px]">
+    <div className={`relative flex flex-col items-center gap-1 ${containerHeight}`}>
       {/* Emoji display above avatar */}
-      {showEmoji && displayedEmoji && (
-        <div className="absolute -top-12 sm:-top-14 left-1/2 -translate-x-1/2 text-4xl sm:text-5xl animate-bounce z-50">
-          {displayedEmoji}
-        </div>
-      )}
+      <div
+        className={`absolute ${emojiTop} left-1/2 -translate-x-1/2 ${emojiSize} animate-bounce z-50 ${showEmoji && displayedEmoji ? "visible" : "invisible"}`}
+      >
+        {displayedEmoji || "😀"}
+      </div>
 
       {showEmojiPicker && isLocalPlayer && (
         <div
@@ -117,8 +130,8 @@ export default function PlayerSeat({
         <div className="relative">
           <div
             className={`
-            relative w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-full overflow-hidden
-            border-3 sm:border-4 transition-all duration-500
+            relative ${avatarSize} rounded-full overflow-hidden
+            border-2 sm:border-3 transition-all duration-500
             ${isActive ? "border-amber-500 shadow-[0_0_25px_rgba(217,119,6,0.7)] scale-110" : "border-amber-900/50"}
             ${isTarget ? "border-red-600 shadow-[0_0_25px_rgba(220,38,38,0.7)]" : ""}
             ${isClickable ? "hover:border-amber-400 hover:scale-105 hover:shadow-[0_0_20px_rgba(217,119,6,0.5)]" : ""}
@@ -127,36 +140,33 @@ export default function PlayerSeat({
             <img src={player.avatar || "/placeholder.svg"} alt={player.name} className="w-full h-full object-cover" />
             {player.isEliminated && (
               <div className="absolute inset-0 bg-black/80 flex items-center justify-center">
-                <span className="text-red-600 text-4xl sm:text-5xl font-bold">✕</span>
+                <span className={`text-red-600 ${eliminatedX} font-bold`}>✕</span>
               </div>
             )}
           </div>
-          {isActive && (
-            <div className="absolute -top-1 -right-1 w-4 h-4 sm:w-5 sm:h-5 bg-amber-500 rounded-full animate-pulse shadow-[0_0_12px_rgba(217,119,6,0.9)]"></div>
-          )}
+          {isActive && <div className="absolute -inset-1 bg-amber-500/30 rounded-full animate-pulse"></div>}
           {isClickable && (
             <div className="absolute inset-0 rounded-full border-2 border-amber-400/50 animate-pulse"></div>
           )}
 
-          {seriesWins > 0 && (
-            <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 flex gap-0.5">
-              {Array.from({ length: seriesWins }).map((_, i) => (
+          <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 flex gap-0.5 h-3 sm:h-4">
+            {seriesWins > 0 &&
+              Array.from({ length: seriesWins }).map((_, i) => (
                 <div
                   key={i}
-                  className="w-3 h-3 sm:w-4 sm:h-4 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 border border-amber-300 shadow-[0_0_8px_rgba(217,119,6,0.6)]"
+                  className={`${winTokenSize} rounded-full bg-gradient-to-br from-amber-400 to-amber-600 border border-amber-300 shadow-[0_0_8px_rgba(217,119,6,0.6)]`}
                   title={`Round ${i + 1} Win`}
                 />
               ))}
-            </div>
-          )}
+          </div>
         </div>
       </button>
 
       {/* Player name and timer */}
-      <div className="flex flex-col items-center h-[2.5rem] sm:h-[3rem] mt-2 sm:mt-3">
+      <div className={`flex flex-col items-center ${isSmall ? "h-8 sm:h-10 mt-1" : "h-10 sm:h-12 mt-2 sm:mt-3"}`}>
         <span
           className={`
-          font-serif text-sm sm:text-base md:text-lg tracking-wider uppercase font-bold whitespace-nowrap
+          font-serif ${textSize} tracking-wider uppercase font-bold whitespace-nowrap
           ${isActive ? "text-amber-400" : "text-amber-700"}
           ${isTarget ? "text-red-500" : ""}
         `}
@@ -165,17 +175,11 @@ export default function PlayerSeat({
         </span>
         <span
           className={`
-            font-mono text-xs sm:text-sm font-bold h-4 sm:h-5
-            ${
-              isActive && turnTimeRemaining !== null && turnTimeRemaining !== undefined && !player.isEliminated
-                ? turnTimeRemaining <= 3
-                  ? "text-red-500 animate-pulse visible"
-                  : "text-amber-500 visible"
-                : "invisible"
-            }
+            font-mono ${textSize} font-bold h-4
+            ${showTimer ? (turnTimeRemaining <= 3 ? "text-red-500 animate-pulse" : "text-amber-500") : "invisible"}
           `}
         >
-          {turnTimeRemaining !== null && turnTimeRemaining !== undefined ? `${turnTimeRemaining}s` : "0s"}
+          {turnTimeRemaining ?? 0}s
         </span>
       </div>
 
@@ -185,10 +189,10 @@ export default function PlayerSeat({
             e.stopPropagation()
             setShowEmojiPicker(!showEmojiPicker)
           }}
-          className="mt-0 p-2 rounded-full bg-amber-900/30 border border-amber-700/50 hover:bg-amber-800/50 hover:border-amber-600/70 transition-all hover:scale-110 active:scale-95"
+          className={`mt-0 ${isSmall ? "p-1" : "p-2"} rounded-full bg-amber-900/30 border border-amber-700/50 hover:bg-amber-800/50 hover:border-amber-600/70 transition-all hover:scale-110 active:scale-95`}
           title="Send emoji"
         >
-          <MessageCircle className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500" />
+          <MessageCircle className={`${isSmall ? "w-3 h-3" : "w-4 h-4 sm:w-5 sm:h-5"} text-amber-500`} />
         </button>
       )}
     </div>

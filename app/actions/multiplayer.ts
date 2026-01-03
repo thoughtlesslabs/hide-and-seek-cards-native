@@ -5,7 +5,7 @@ import type { Lobby, LobbyPlayer, AllowedEmoji, SharedGameState } from "@/types/
 import { ALLOWED_EMOJIS } from "@/types/multiplayer"
 
 const rateLimitMap = new Map<string, number>()
-const RATE_LIMIT_MS = 100 // Minimum 100ms between requests per player
+const RATE_LIMIT_MS = 100
 
 function checkRateLimit(playerId: string): boolean {
   const now = Date.now()
@@ -14,7 +14,6 @@ function checkRateLimit(playerId: string): boolean {
     return false
   }
   rateLimitMap.set(playerId, now)
-  // Clean old entries periodically
   if (rateLimitMap.size > 10000) {
     const cutoff = now - 60000
     for (const [key, time] of rateLimitMap.entries()) {
@@ -29,7 +28,7 @@ export async function joinMatchmaking(playerId: string, roundsToWin = 2): Promis
     throw new Error("Invalid player ID")
   }
   if (roundsToWin !== 1 && roundsToWin !== 2 && roundsToWin !== 3) {
-    roundsToWin = 2 // Default to best of 3
+    roundsToWin = 2
   }
   return await multiplayerService.joinQueue(playerId, roundsToWin)
 }
@@ -137,4 +136,25 @@ export async function getGlobalStats(): Promise<{
     console.error("[v0] Error fetching global stats:", error)
     return { playersOnline: 0, gamesInProgress: 0, playersInQueue: 0 }
   }
+}
+
+export async function pollGameState(playerId: string): Promise<SharedGameState | null> {
+  if (!playerId || typeof playerId !== "string") return null
+  const result = await multiplayerService.getSharedGameStateWithReactions(playerId)
+  return result.state
+}
+
+export async function selectTarget(playerId: string, targetId: string): Promise<SharedGameState | null> {
+  if (!playerId || !targetId || typeof playerId !== "string" || typeof targetId !== "string") return null
+  return await multiplayerService.selectTarget(playerId, targetId)
+}
+
+export async function selectCard(playerId: string, cardId: string, targetId?: string): Promise<SharedGameState | null> {
+  if (!playerId || !cardId || typeof playerId !== "string" || typeof cardId !== "string") return null
+  return await multiplayerService.pickCard(playerId, cardId, targetId)
+}
+
+export async function startRematchVote(playerId: string): Promise<SharedGameState | null> {
+  if (!playerId || typeof playerId !== "string") return null
+  return await multiplayerService.voteRematch(playerId)
 }
