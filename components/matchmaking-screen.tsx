@@ -11,9 +11,16 @@ interface MatchmakingScreenProps {
   onGameStart: (lobby: Lobby) => void
   roundsToWin: number // Added roundsToWin prop
   maxPlayers: number // Added maxPlayers prop
+  onLeave: () => void // Added onLeave prop
 }
 
-export default function MatchmakingScreen({ playerId, onGameStart, roundsToWin, maxPlayers }: MatchmakingScreenProps) {
+export default function MatchmakingScreen({
+  playerId,
+  onGameStart,
+  roundsToWin,
+  maxPlayers,
+  onLeave,
+}: MatchmakingScreenProps) {
   const [lobby, setLobby] = useState<Lobby | null>(null)
   const [currentPlayer, setCurrentPlayer] = useState<LobbyPlayer | null>(null)
   const [timeRemaining, setTimeRemaining] = useState<number>(0)
@@ -61,7 +68,7 @@ export default function MatchmakingScreen({ playerId, onGameStart, roundsToWin, 
   const handleLeaveQueue = async () => {
     setIsLeaving(true)
     await leaveLobby(playerId)
-    window.location.reload()
+    onLeave()
   }
 
   const getPlayerEmoji = (pId: string): string | null => {

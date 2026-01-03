@@ -58,6 +58,7 @@ export default function Home() {
     | "hostRoundSelection"
     | "privateLobby"
     | "joinWithCode"
+    | null // Added null to allow setting gameMode to null
   >("menu")
   const [selectedRoundsToWin, setSelectedRoundsToWin] = useState<number>(2) // Default to best of 3
   const [selectedPlayerCount, setSelectedPlayerCount] = useState<number>(8)
@@ -84,8 +85,7 @@ export default function Home() {
     lastVersionRef.current = 0
     setLocalSelectedTarget(null)
     setHasVotedRematch(false)
-    // Go back to round selection
-    setGameMode("roundSelection")
+    setGameMode(null)
   }, [playerId])
 
   useEffect(() => {
@@ -516,7 +516,9 @@ export default function Home() {
           {rematchCountdown !== null && rematchCountdown > 0 && (
             <div className="absolute top-4 right-4 flex items-center gap-2">
               <span
-                className={`font-mono text-lg font-bold ${rematchCountdown <= 10 ? "text-red-500 animate-pulse" : "text-amber-500"}`}
+                className={`font-mono text-lg font-bold ${
+                  rematchCountdown <= 10 ? "text-red-500 animate-pulse" : "text-amber-500"
+                }`}
               >
                 {rematchCountdown}s
               </span>
@@ -647,22 +649,22 @@ export default function Home() {
                 setSelectedPlayerCount(4)
                 setGameMode("roundSelection")
               }}
-              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl"
+              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 rounded-2xl font-bold transition-all transform hover:scale-105 font-serif border border-amber-700/50 shadow-xl flex flex-col items-center"
             >
-              4 Players
+              <span className="text-xl tracking-widest">4 Players</span>
+              <span className="text-amber-500/70 text-sm font-normal mt-1">Faster games, quicker rounds</span>
             </button>
-            <p className="text-amber-500/60 text-sm -mt-2 mb-2">Faster games, quicker rounds</p>
 
             <button
               onClick={() => {
                 setSelectedPlayerCount(8)
                 setGameMode("roundSelection")
               }}
-              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl"
+              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 rounded-2xl font-bold transition-all transform hover:scale-105 font-serif border border-amber-700/50 shadow-xl flex flex-col items-center"
             >
-              8 Players
+              <span className="text-xl tracking-widest">8 Players</span>
+              <span className="text-amber-500/70 text-sm font-normal mt-1">Longer games, more chaos</span>
             </button>
-            <p className="text-amber-500/60 text-sm -mt-2">Longer games, more chaos</p>
           </div>
 
           <button
@@ -675,8 +677,6 @@ export default function Home() {
       </div>
     )
   }
-
-  // Add these new game mode renders before the menu render (after the gameStartedWhileAway check)
 
   if (gameMode === "roundSelection") {
     return (
@@ -854,22 +854,22 @@ export default function Home() {
                 setSelectedPlayerCount(4)
                 setGameMode("hostRoundSelection")
               }}
-              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl"
+              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 rounded-2xl font-bold transition-all transform hover:scale-105 font-serif border border-amber-700/50 shadow-xl flex flex-col items-center"
             >
-              4 Players
+              <span className="text-xl tracking-widest">4 Players</span>
+              <span className="text-amber-500/70 text-sm font-normal mt-1">Faster games, quicker rounds</span>
             </button>
-            <p className="text-amber-500/60 text-sm -mt-2 mb-2">Faster games, quicker rounds</p>
 
             <button
               onClick={() => {
                 setSelectedPlayerCount(8)
                 setGameMode("hostRoundSelection")
               }}
-              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl"
+              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 rounded-2xl font-bold transition-all transform hover:scale-105 font-serif border border-amber-700/50 shadow-xl flex flex-col items-center"
             >
-              8 Players
+              <span className="text-xl tracking-widest">8 Players</span>
+              <span className="text-amber-500/70 text-sm font-normal mt-1">Longer games, more chaos</span>
             </button>
-            <p className="text-amber-500/60 text-sm -mt-2">Longer games, more chaos</p>
           </div>
 
           <button
@@ -1002,7 +1002,7 @@ export default function Home() {
           <div className="flex flex-col gap-4 mb-12">
             <button
               onClick={() => setGameMode("playerSelection")}
-              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif tracking-widest border border-amber-700/50 shadow-xl"
+              className="w-full px-12 py-5 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xl rounded-2xl font-bold transition-all transform hover:scale-105 font-serif border border-amber-700/50 shadow-xl"
             >
               Find Match
             </button>
@@ -1104,6 +1104,7 @@ export default function Home() {
     )
   }
 
+  // Render the main game interface or menu if no specific game mode is active
   return (
     <div className="min-h-screen w-full bg-[#050505] flex items-center justify-center relative overflow-hidden p-2 sm:p-4">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(217,119,6,0.03)_0%,_#050505_80%)] opacity-50"></div>

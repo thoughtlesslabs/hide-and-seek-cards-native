@@ -349,10 +349,8 @@ export async function joinQueue(playerId: string, roundsToWin = 2, maxPlayers = 
           return existingPlayer
         }
       }
-      // Game is finished, clean up the player's lobby mapping
       await removePlayerLobby(sanitizedId)
     } else {
-      // Lobby doesn't exist anymore, clean up
       await removePlayerLobby(sanitizedId)
     }
   }
@@ -370,7 +368,14 @@ export async function joinQueue(playerId: string, roundsToWin = 2, maxPlayers = 
 
   for (const lobbyId of waitingLobbyIds) {
     const lobby = await getLobbyById(lobbyId as string)
-    if (lobby && lobby.status === "waiting" && lobby.players.length < maxPlayers && lobby.roundsToWin === roundsToWin) {
+    if (
+      lobby &&
+      lobby.status === "waiting" &&
+      !lobby.isPrivate &&
+      lobby.maxPlayers === maxPlayers &&
+      lobby.players.length < maxPlayers &&
+      lobby.roundsToWin === roundsToWin
+    ) {
       const alreadyInLobby = lobby.players.some((p) => p.id === sanitizedId)
       if (alreadyInLobby) continue
 
@@ -401,6 +406,7 @@ export async function joinQueue(playerId: string, roundsToWin = 2, maxPlayers = 
     maxPlayers,
     reactions: {},
     roundsToWin,
+    isPrivate: false,
   }
 
   await saveLobby(newLobby)
