@@ -351,8 +351,12 @@ async function checkAndHandleLobbyTimer(lobby: Lobby, maxPlayers: number): Promi
       lobby.status = "starting"
       lobby.startTimer = null
 
+      // Remove from waiting lobbies FIRST
       await redis.zrem(REDIS_KEYS.WAITING_LOBBIES, lobby.id)
-      console.log("[v0] Removed from waiting lobbies, initializing game...")
+
+      // This ensures if initializeGame fails, the bots are persisted
+      await saveLobby(lobby)
+      console.log("[v0] Saved lobby with bots, now initializing game...")
 
       await initializeGame(lobby, maxPlayers)
       console.log("[v0] Game initialized successfully")
@@ -365,6 +369,7 @@ async function checkAndHandleLobbyTimer(lobby: Lobby, maxPlayers: number): Promi
       // Reset to waiting so it can try again
       lobby.status = "waiting"
       lobby.startTimer = Date.now() + 5000 // Try again in 5 seconds
+      await saveLobby(lobby)
     }
   }
 
@@ -489,7 +494,15 @@ export async function leaveLobby(playerId: string): Promise<void> {
   const sanitizedId = sanitizeId(playerId)
   if (!sanitizedId) return
 
-  // Always try to remove player mapping first, even if other operations fail
+  // Get the lobby ID FIRST before removing anything
+  let lobbyId: string | null = null
+  try {
+    lobbyId = await getPlayerLobbyId(sanitizedId)
+  } catch (e) {
+    console.log("[v0] Error getting player lobby id during leave:", e)
+  }
+
+  // Now remove the player-to-lobby mapping
   try {
     await removePlayerLobby(sanitizedId)
   } catch (e) {
@@ -502,14 +515,7 @@ export async function leaveLobby(playerId: string): Promise<void> {
     }
   }
 
-  let lobbyId: string | null = null
-  try {
-    lobbyId = await getPlayerLobbyId(sanitizedId)
-  } catch (e) {
-    console.log("[v0] Error getting player lobby id during leave:", e)
-    return // Player mapping already cleared above
-  }
-
+  // If no lobby, we're done
   if (!lobbyId) return
 
   let lobby: Lobby | null = null
