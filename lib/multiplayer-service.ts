@@ -438,34 +438,66 @@ export async function leaveLobby(playerId: string): Promise<void> {
   const sanitizedId = sanitizeId(playerId)
   if (!sanitizedId) return
 
-  const lobbyId = await getPlayerLobbyId(sanitizedId)
-  if (!lobbyId) return
-
-  const lobby = await getLobbyById(lobbyId)
-  if (!lobby) {
+  // Always try to remove player mapping first, even if other operations fail
+  try {
     await removePlayerLobby(sanitizedId)
-    return
+  } catch (e) {
+    console.log("[v0] Error removing player lobby mapping:", e)
+    // Force delete the key directly
+    try {
+      await redis.del(REDIS_KEYS.PLAYER_LOBBY(sanitizedId))
+    } catch (e2) {
+      console.log("[v0] Error force deleting player lobby key:", e2)
+    }
   }
 
-  await removePlayerLobby(sanitizedId)
+  let lobbyId: string | null = null
+  try {
+    lobbyId = await getPlayerLobbyId(sanitizedId)
+  } catch (e) {
+    console.log("[v0] Error getting player lobby id during leave:", e)
+    return // Player mapping already cleared above
+  }
+
+  if (!lobbyId) return
+
+  let lobby: Lobby | null = null
+  try {
+    lobby = await getLobbyById(lobbyId)
+  } catch (e) {
+    console.log("[v0] Error getting lobby during leave:", e)
+    return // Player mapping already cleared above
+  }
+
+  if (!lobby) return
 
   if (lobby.status === "waiting") {
     lobby.players = lobby.players.filter((p) => p.id !== sanitizedId)
 
     if (lobby.players.length === 0) {
       if (lobby.isPrivate && lobby.gameCode) {
-        await redis.del(REDIS_KEYS.GAME_CODE(lobby.gameCode))
+        try {
+          await redis.del(REDIS_KEYS.GAME_CODE(lobby.gameCode))
+        } catch (e) {
+          console.log("[v0] Error deleting game code:", e)
+        }
       }
-      await redis.del(REDIS_KEYS.LOBBY(lobbyId))
-      await redis.zrem(REDIS_KEYS.WAITING_LOBBIES, lobbyId)
+      try {
+        await redis.del(REDIS_KEYS.LOBBY(lobbyId))
+        await redis.zrem(REDIS_KEYS.WAITING_LOBBIES, lobbyId)
+      } catch (e) {
+        console.log("[v0] Error deleting lobby:", e)
+      }
     } else {
       if (lobby.hostId === sanitizedId && lobby.players.length > 0) {
         lobby.hostId = lobby.players[0].id
       }
-      await saveLobby(lobby)
+      try {
+        await saveLobby(lobby)
+      } catch (e) {
+        console.log("[v0] Error saving lobby after leave:", e)
+      }
     }
-  } else if (lobby.status === "in-progress") {
-    // The game will continue, player is effectively disconnected
   }
 }
 
