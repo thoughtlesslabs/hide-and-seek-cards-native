@@ -34,7 +34,7 @@ export const GameTable: React.FC<GameTableProps> = ({
   const ry = height * 0.36;
   const total = players.length;
 
-  const canSelectTarget = phase === 'select_target' && onPlayerPress;
+  const canSelectTarget = (phase === 'select_target' || phase === 'SELECT_TARGET') && onPlayerPress;
 
   return (
     <View style={styles.container}>

@@ -375,13 +375,7 @@ export function useOfflineGame(config: OfflineGameConfig): [OfflineGameState, Of
     });
     
     setTimeout(() => {
-      setState(prev => {
-        const card = prev.cards.find(c => c.id === cardId);
-        if (card) {
-          handleCardReveal(cardId, card.ownerId);
-        }
-        return prev;
-      });
+      handleCardReveal(cardId, "");
     }, 300);
   }, [handleCardReveal]);
 
