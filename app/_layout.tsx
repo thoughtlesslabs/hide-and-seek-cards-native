@@ -3,6 +3,7 @@ import { Stack } from "expo-router";
 import { useFonts, Cinzel_400Regular, Cinzel_700Bold } from "@expo-google-fonts/cinzel";
 import { View, ActivityIndicator } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
@@ -19,7 +20,7 @@ export default function RootLayout() {
   }
 
   return (
-    <>
+    <SafeAreaProvider>
       <StatusBar style="light" />
       <Stack
         screenOptions={{
@@ -28,6 +29,6 @@ export default function RootLayout() {
           animation: "fade",
         }}
       />
-    </>
+    </SafeAreaProvider>
   );
 }

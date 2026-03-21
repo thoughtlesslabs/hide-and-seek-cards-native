@@ -19,6 +19,8 @@ import { useSessionStore } from "../../store/sessionStore";
 import { useGamePolling } from "../../hooks/useGamePolling";
 import { useHeartbeat } from "../../hooks/useHeartbeat";
 import { useTurnTimer } from "../../hooks/useTurnTimer";
+import { useHaptics } from "../../hooks/useHaptics";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as api from "../../lib/api";
 import type { SharedGameState } from "../../types/multiplayer";
 
@@ -80,6 +82,43 @@ export default function GameScreen() {
   const [hasVotedRematch, setHasVotedRematch] = useState(false);
   const prevRoundRef = useRef<number | null>(null);
 
+  const { onCardReveal, onElimination, onMyTurn, onWin, onButtonPress } = useHaptics();
+  const insets = useSafeAreaInsets();
+
+  // Haptics wiring
+  const prevIsMyTurnRef = useRef<boolean>(false);
+  const prevEliminatedCountRef = useRef<number>(0);
+  const prevRevealedCountRef = useRef<number>(0);
+  const prevPhaseRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!sharedGameState) return;
+    
+    const isNowMyTurn = sharedGameState.players[sharedGameState.currentPlayerIndex]?.id === playerId;
+    if (isNowMyTurn && !prevIsMyTurnRef.current && (sharedGameState.phase === "select_target" || sharedGameState.phase === "select_card")) {
+      onMyTurn();
+    }
+    prevIsMyTurnRef.current = isNowMyTurn;
+
+    const eliminatedCount = sharedGameState.players.filter(p => p.isEliminated).length;
+    if (eliminatedCount > prevEliminatedCountRef.current) {
+      onElimination();
+    }
+    prevEliminatedCountRef.current = eliminatedCount;
+
+    const revealedCount = sharedGameState.cards.filter(c => c.isRevealed).length;
+    if (revealedCount > prevRevealedCountRef.current) {
+      onCardReveal();
+    }
+    prevRevealedCountRef.current = revealedCount;
+
+    if ((sharedGameState.phase === "round_end" || sharedGameState.phase === "series_end") && prevPhaseRef.current !== sharedGameState.phase) {
+      onWin();
+    }
+    prevPhaseRef.current = sharedGameState.phase;
+
+  }, [sharedGameState, playerId]);
+
   // ── Hooks ──────────────────────────────────────────────────────────────
   useGamePolling({ enabled: true });
   useHeartbeat({ enabled: true });
@@ -135,6 +174,7 @@ export default function GameScreen() {
   const handlePlayerPress = useCallback(
     async (targetId: string) => {
       if (!isMyTurn || phase !== "select_target" || isActing) return;
+      onButtonPress();
       setLocalSelectedTarget(targetId);
       setIsActing(true);
       try {
@@ -153,6 +193,7 @@ export default function GameScreen() {
   const handleCardFlip = useCallback(
     async (cardId: string) => {
       if (!isMyTurn || phase !== "select_card" || isActing) return;
+      onButtonPress();
       const targetId =
         localSelectedTarget ?? sharedGameState?.targetPlayerId ?? undefined;
       setIsActing(true);
@@ -181,6 +222,7 @@ export default function GameScreen() {
   );
 
   const handleEmojiSelect = async (emoji: string) => {
+    onButtonPress();
     setShowEmojiPicker(false);
     if (!playerId) return;
     addReaction({ playerId, emoji, timestamp: Date.now() });
@@ -190,6 +232,7 @@ export default function GameScreen() {
   };
 
   const handleVoteRematch = async () => {
+    onButtonPress();
     if (!playerId || isVotingRematch || hasVotedRematch) return;
     setIsVotingRematch(true);
     try {
@@ -204,6 +247,7 @@ export default function GameScreen() {
   };
 
   const handleLeaveGame = () => {
+    onButtonPress();
     Alert.alert("Leave Game", "Are you sure you want to leave?", [
       { text: "Cancel", style: "cancel" },
       {
@@ -223,6 +267,7 @@ export default function GameScreen() {
   };
 
   const handleRoundContinue = () => {
+    onButtonPress();
     setRoundEndDismissed(true);
   };
 
@@ -250,7 +295,7 @@ export default function GameScreen() {
   return (
     <View style={styles.rootContainer}>
       <GlowBackground>
-        <SafeAreaView style={styles.safeArea}>
+        <SafeAreaView style={[styles.safeArea, { paddingTop: Math.max(insets.top, 0), paddingBottom: Math.max(insets.bottom, 0) }]}>
           {/* ── Top bar ── */}
           <View style={styles.topBar}>
             <View style={styles.topLeft}>
@@ -310,7 +355,10 @@ export default function GameScreen() {
           <View style={styles.bottomBar}>
             <Pressable
               style={styles.emojiButton}
-              onPress={() => setShowEmojiPicker(true)}
+              onPress={() => {
+                onButtonPress();
+                setShowEmojiPicker(true);
+              }}
             >
               <Text style={styles.emojiButtonText}>😊</Text>
             </Pressable>
@@ -372,6 +420,7 @@ export default function GameScreen() {
           hasVoted={hasVotedRematch}
           onVoteRematch={handleVoteRematch}
           onLeave={() => {
+            onButtonPress();
             resetGameState();
             router.replace("/");
           }}
