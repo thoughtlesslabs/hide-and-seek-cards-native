@@ -141,7 +141,7 @@ export default function MenuScreen() {
 
           <Pressable
             className="bg-stone-900 border border-stone-700 py-4 rounded-xl items-center active:bg-stone-800"
-            onPress={() => router.push("/offline/game")}
+            onPress={() => router.push("/offline/setup")}
           >
             <Text className="font-cinzel-bold text-stone-400 text-lg tracking-wider">
               Play Offline
