@@ -3,42 +3,48 @@ import { View, StyleSheet, Animated } from 'react-native';
 
 export interface TurnTimerProps {
   timeLeft: number;
-  maxTime: number;
+  maxTime?: number;
 }
 
-export const TurnTimer: React.FC<TurnTimerProps> = ({ timeLeft, maxTime }) => {
+export const TurnTimer: React.FC<TurnTimerProps> = ({ timeLeft, maxTime = 8 }) => {
   const animatedValue = useRef(new Animated.Value(timeLeft)).current;
 
   useEffect(() => {
     Animated.timing(animatedValue, {
       toValue: timeLeft,
-      duration: 1000,
+      duration: 200,
       useNativeDriver: false,
     }).start();
-  }, [timeLeft]);
+  }, [timeLeft, animatedValue]);
 
-  const width = animatedValue.interpolate({
+  const widthPct = animatedValue.interpolate({
     inputRange: [0, maxTime],
     outputRange: ['0%', '100%'],
+    extrapolate: 'clamp',
   });
+
+  // Color shifts from amber → red as time runs out
+  const barColor = timeLeft <= 2 ? '#ef4444' : timeLeft <= 4 ? '#f97316' : '#FFBF00';
 
   return (
     <View style={styles.container}>
-      <Animated.View style={[styles.bar, { width }]} />
+      <Animated.View style={[styles.bar, { width: widthPct, backgroundColor: barColor }]} />
     </View>
   );
 };
 
+export default TurnTimer;
+
 const styles = StyleSheet.create({
   container: {
-    height: 8,
+    height: 6,
     width: '100%',
-    backgroundColor: '#ccc',
-    borderRadius: 4,
+    backgroundColor: '#292524',
+    borderRadius: 3,
     overflow: 'hidden',
   },
   bar: {
     height: '100%',
-    backgroundColor: '#FFBF00',
-  }
+    borderRadius: 3,
+  },
 });
