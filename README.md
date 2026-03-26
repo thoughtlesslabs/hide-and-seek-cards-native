@@ -1,30 +1,39 @@
-# Hide and Seek Cards
+# Hide & Seek Cards — React Native
 
-*Automatically synced with your [v0.app](https://v0.app) deployments*
+A mobile card game where players hide and seek cards using strategy, bluffing, and emoji reactions. Built with Expo and React Native for iOS and Android.
 
-[![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?style=for-the-badge&logo=vercel)](https://vercel.com/thoughtlesslabs-projects/v0-hide-and-seek-cards)
-[![Built with v0](https://img.shields.io/badge/Built%20with-v0.app-black?style=for-the-badge)](https://v0.app/chat/cuO6jrCU7TA)
+## Tech Stack
 
-## Overview
+- **Expo SDK 55** (managed workflow)
+- **React Native 0.83**
+- **NativeWind** — Tailwind CSS for React Native
+- **Zustand** — lightweight state management
+- **React Native Reanimated** — smooth animations
+- **TypeScript**
 
-This repository will stay in sync with your deployed chats on [v0.app](https://v0.app).
-Any changes you make to your deployed app will be automatically pushed to this repository from [v0.app](https://v0.app).
+## Getting Started
 
-## Deployment
+```bash
+# Install dependencies
+npm install
 
-Your project is live at:
+# Start the development server
+npx expo start
+```
 
-**[https://vercel.com/thoughtlesslabs-projects/v0-hide-and-seek-cards](https://vercel.com/thoughtlesslabs-projects/v0-hide-and-seek-cards)**
+Scan the QR code with Expo Go (Android) or the Camera app (iOS) to run on your device.
 
-## Build your app
+## Features
 
-Continue building your app on:
+- Offline game mode with AI opponents
+- Real-time multiplayer (coming soon)
+- Card animations and emoji reactions
+- Cross-platform (iOS & Android)
 
-**[https://v0.app/chat/cuO6jrCU7TA](https://v0.app/chat/cuO6jrCU7TA)**
+## Related
 
-## How It Works
+- [Hide & Seek Cards (Web)](https://github.com/thoughtlesslabs/hide-and-seek-cards) — the original web app
 
-1. Create and modify your project using [v0.app](https://v0.app)
-2. Deploy your chats from the v0 interface
-3. Changes are automatically pushed to this repository
-4. Vercel deploys the latest version from this repository
+## License
+
+MIT
