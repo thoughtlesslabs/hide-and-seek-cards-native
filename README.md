@@ -2,6 +2,8 @@
 
 A production-oriented, family-friendly guessing card game for the web, iPhone, and Android. Players choose someone to seek and reveal one hiding place. After every reveal, all remaining cards move before the next player's turn.
 
+Canonical repository: [thoughtlesslabs/hide-and-seek-cards-native](https://github.com/thoughtlesslabs/hide-and-seek-cards-native), with `master` as the integration branch. The current release uses React/Vite and Capacitor; the earlier Expo implementation is preserved in Git history. Production runs on the VPS at [cards.thoughtlesslabs.com](https://cards.thoughtlesslabs.com), without a Vercel deployment dependency. See [Release status](docs/RELEASE_STATUS.md) for recorded build and store evidence.
+
 ## What is included
 
 - Bundled React/Vite game client with offline solo play

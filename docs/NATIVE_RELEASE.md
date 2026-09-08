@@ -1,6 +1,6 @@
 # Native release guide
 
-This guide covers the release path for the bundled Capacitor app. The `ios/` and `android/` projects have been generated and are part of the workspace. Android has a locally validated, upload-key-signed App Bundle; iOS signing remains blocked on the Apple developer identity.
+This guide covers the release path for the bundled Capacitor app. The `ios/` and `android/` projects are part of the workspace. Signed candidates have been uploaded to Google Play internal testing and TestFlight; see [Release status](./RELEASE_STATUS.md) for dated evidence and remaining verification.
 
 ## Fixed decisions
 
@@ -37,8 +37,8 @@ Current release evidence:
 
 - Android has a current tester APK signed with the standard Android Debug certificate and a release App Bundle signed by the Thoughtless Labs upload certificate. The upload keystore lives outside the repository, its passwords are in macOS Keychain, and `pnpm android:release` reproduces the guarded, tested, linted, shrunk, signed bundle. Back up the upload keystore in an encrypted organizational vault before the first Play upload.
 - Android and iOS currently contain synchronized `native-release` web bundles targeting `https://cards.thoughtlesslabs.com`, and both release-origin gates validate that exact origin. Repeat the guarded sync from the exact release commit before producing each signed store candidate.
-- Xcode 26.6, the iOS 26.5 SDK/runtime, and current simulators are installed. Unsigned Debug and Release simulator builds succeed, including the Release production-origin gate. Store signing, physical-device distribution, archiving, and TestFlight still require the Apple developer identity.
-- The Xcode target has no Apple Development Team, distribution certificate, or provisioning profile configured. No signed `.xcarchive` or `.ipa` has been produced; simulator products must not be distributed.
+- Local Xcode Debug and Release simulator builds and the GitHub iOS simulator Release build passed, including the Release production-origin gate. This is build evidence, not evidence of physical-device testing.
+- Apple signing uses team `4SF8573TA6`. Build 2 was uploaded and assigned to the internal TestFlight group on August 20, 2026. Simulator products must not be distributed; store-delivered device testing remains a separate release gate.
 
 Do not treat the ignored files under native `build/` directories as release evidence. A release is ready only after the final domain is embedded, platform signing succeeds, the store-delivered binary passes the device/network matrix, and the applicable checklist items are complete.
 
